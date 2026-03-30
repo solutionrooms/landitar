@@ -7,10 +7,11 @@ import { Explosion } from '../entities/explosion.js';
 import { Terrain } from '../levels/terrain.js';
 import { LEVELS } from '../levels/level-data.js';
 import { type Planet } from '../entities/planet.js';
-import { circleVsSegments, segmentIntersection, type Segment } from '../math/collision.js';
+import { circleVsSegments, type Segment } from '../math/collision.js';
 import { renderHud } from '../render/hud.js';
 import { Colors } from '../render/colors.js';
 import { GameOverScene } from './game-over-scene.js';
+import { settings } from '../core/settings.js';
 
 const EXIT_Y = 280;        // Y threshold to exit planet
 const TRACTOR_RANGE = 35;  // range for tractor beam pickup
@@ -61,7 +62,7 @@ export class PlanetScene implements Scene {
     // Update ship
     if (this.ship.alive) {
       // Apply gravity
-      this.ship.vel.y -= this.gravity * dt;
+      this.ship.vel.y -= this.gravity * settings.planetGravity * dt;
 
       const fuelUsed = this.ship.update(dt, input, state.fuel);
       state.fuel = Math.max(0, state.fuel - fuelUsed);

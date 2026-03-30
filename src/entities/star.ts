@@ -1,16 +1,15 @@
 import { Vec2 } from '../math/vec2.js';
 import { type Renderer } from '../render/renderer.js';
 import { Colors } from '../render/colors.js';
+import { settings } from '../core/settings.js';
 
 const STAR_POINTS = 12;
 const STAR_RADIUS = 25;
 const KILL_RADIUS = 30;
-const GRAVITY_STRENGTH = 8000;
 
 export class Star {
   pos: Vec2;
   readonly killRadius = KILL_RADIUS;
-  readonly gravityStrength = GRAVITY_STRENGTH;
   private pulsePhase = 0;
 
   constructor(x: number, y: number) {
@@ -26,7 +25,7 @@ export class Star {
     const distSq = diff.lengthSq();
     if (distSq < 100) return Vec2.zero();
     const dist = Math.sqrt(distSq);
-    return diff.normalize().scale(this.gravityStrength / distSq * dist);
+    return diff.normalize().scale(settings.starGravity / distSq * dist);
   }
 
   render(renderer: Renderer) {
