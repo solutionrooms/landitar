@@ -68,7 +68,7 @@ export class LevelDebugScene implements Scene {
       }
       if (input.wasPressed('Space')) {
         this.mode = 'detail';
-        this.detailScroll = this.levels[this.selected].rejected.length; // start on FINAL tab
+        this.detailScroll = 0; // start on first attempt (or FINAL if no rejections)
       }
       if (input.wasPressed('Escape')) {
         ctx.popScene();
