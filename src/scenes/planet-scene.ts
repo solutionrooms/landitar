@@ -111,11 +111,22 @@ export class PlanetScene implements Scene {
     }
     this.bottomY = Math.min(...ys) - 60;
 
-    // Add spike walls for open levels (indestructible)
+    // Add spike walls (indestructible) — all levels get side/bottom borders
     if (!level.closed) {
+      // Open caves: spikes from exit line down to bottom
       this.terrain.addSegments(generateSpikes(this.minX, EXIT_Y, this.minX, this.bottomY, 1, 0));
       this.terrain.addSegments(generateSpikes(this.maxX, EXIT_Y, this.maxX, this.bottomY, -1, 0));
       this.terrain.addSegments(generateSpikes(this.minX, this.bottomY, this.maxX, this.bottomY, 0, 1));
+    } else {
+      // Closed tunnels: spikes around the bounding box with margin
+      const margin = 40;
+      const spikeLeft = this.minX - margin;
+      const spikeRight = this.maxX + margin;
+      const spikeTop = EXIT_Y;
+      const spikeBottom = this.bottomY - margin;
+      this.terrain.addSegments(generateSpikes(spikeLeft, spikeTop, spikeLeft, spikeBottom, 1, 0));
+      this.terrain.addSegments(generateSpikes(spikeRight, spikeTop, spikeRight, spikeBottom, -1, 0));
+      this.terrain.addSegments(generateSpikes(spikeLeft, spikeBottom, spikeRight, spikeBottom, 0, 1));
     }
 
     // Add island/pillar terrain (indestructible)
