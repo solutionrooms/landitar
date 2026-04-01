@@ -238,32 +238,32 @@ export class TitleScene implements Scene {
       ctx.fill();
     }
 
-    // === Center: Animated mini solar system ===
+    // === Center: Animated mini solar system (scale to screen) ===
     const solarCx = cx;
-    const solarCy = cy - 20;
+    const solarCy = cy - 10;
+    const solarScale = Math.min(w, h) / 600; // scale orbits to screen
 
     // Sun (pulsing)
-    const sunPulse = 12 + Math.sin(t * 2) * 2;
-    const sunGrad = ctx.createRadialGradient(solarCx, solarCy, 0, solarCx, solarCy, sunPulse + 8);
+    const sunPulse = (18 + Math.sin(t * 2) * 3) * solarScale;
+    const sunGrad = ctx.createRadialGradient(solarCx, solarCy, 0, solarCx, solarCy, sunPulse + 12 * solarScale);
     sunGrad.addColorStop(0, '#FFFF44');
     sunGrad.addColorStop(0.5, '#FFAA00');
     sunGrad.addColorStop(1, 'rgba(255, 100, 0, 0)');
     ctx.fillStyle = sunGrad;
     ctx.beginPath();
-    ctx.arc(solarCx, solarCy, sunPulse + 8, 0, Math.PI * 2);
+    ctx.arc(solarCx, solarCy, sunPulse + 12 * solarScale, 0, Math.PI * 2);
     ctx.fill();
-    // Sun core
     ctx.fillStyle = '#FFFF88';
     ctx.beginPath();
     ctx.arc(solarCx, solarCy, sunPulse * 0.5, 0, Math.PI * 2);
     ctx.fill();
 
-    // Orbiting planets
+    // Orbiting planets (scaled to screen)
     const planets = [
-      { r: 60, speed: 0.4, size: 4, color: '#44AAFF', name: '' },
-      { r: 95, speed: 0.25, size: 5, color: '#00CC00', name: '' },
-      { r: 130, speed: 0.15, size: 3, color: '#FF6644', name: '' },
-      { r: 165, speed: 0.1, size: 6, color: '#AA44FF', name: '' },
+      { r: 80 * solarScale, speed: 0.4, size: 5 * solarScale, color: '#44AAFF' },
+      { r: 130 * solarScale, speed: 0.25, size: 7 * solarScale, color: '#00CC00' },
+      { r: 180 * solarScale, speed: 0.15, size: 4 * solarScale, color: '#FF6644' },
+      { r: 230 * solarScale, speed: 0.1, size: 8 * solarScale, color: '#AA44FF' },
     ];
 
     for (const p of planets) {
@@ -287,46 +287,47 @@ export class TitleScene implements Scene {
       // Simple glow with just a larger circle
       ctx.globalAlpha = 0.15;
       ctx.beginPath();
-      ctx.arc(px, py, p.size + 4, 0, Math.PI * 2);
+      ctx.arc(px, py, p.size + 5 * solarScale, 0, Math.PI * 2);
       ctx.fill();
       ctx.globalAlpha = 1;
     }
 
     // Animated ship flying around the solar system
     const shipAngle = t * 0.6;
-    const shipOrbit = 50 + Math.sin(t * 0.3) * 30;
+    const shipOrbit = (50 + Math.sin(t * 0.3) * 30) * solarScale;
     const shipX = solarCx + Math.cos(shipAngle) * shipOrbit;
     const shipY = solarCy + Math.sin(shipAngle) * shipOrbit;
     const shipDir = shipAngle + Math.PI / 2;
+    const ss = 1.5 * solarScale; // ship scale
 
     // Ship shape
     ctx.strokeStyle = Colors.ship;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(shipX + Math.cos(shipDir) * 6, shipY + Math.sin(shipDir) * 6);
-    ctx.lineTo(shipX + Math.cos(shipDir + 2.5) * 5, shipY + Math.sin(shipDir + 2.5) * 5);
-    ctx.lineTo(shipX + Math.cos(shipDir + Math.PI) * 2, shipY + Math.sin(shipDir + Math.PI) * 2);
-    ctx.lineTo(shipX + Math.cos(shipDir - 2.5) * 5, shipY + Math.sin(shipDir - 2.5) * 5);
+    ctx.moveTo(shipX + Math.cos(shipDir) * 8 * ss, shipY + Math.sin(shipDir) * 8 * ss);
+    ctx.lineTo(shipX + Math.cos(shipDir + 2.5) * 6 * ss, shipY + Math.sin(shipDir + 2.5) * 6 * ss);
+    ctx.lineTo(shipX + Math.cos(shipDir + Math.PI) * 3 * ss, shipY + Math.sin(shipDir + Math.PI) * 3 * ss);
+    ctx.lineTo(shipX + Math.cos(shipDir - 2.5) * 6 * ss, shipY + Math.sin(shipDir - 2.5) * 6 * ss);
     ctx.closePath();
     ctx.stroke();
 
     // Thrust flame
     const thrustFlicker = 0.5 + Math.random() * 0.5;
     ctx.strokeStyle = `rgba(255, 136, 0, ${thrustFlicker})`;
-    ctx.lineWidth = 1;
-    const thrustLen = 4 + Math.random() * 4;
+    ctx.lineWidth = 1.5;
+    const thrustLen = (5 + Math.random() * 5) * ss;
     ctx.beginPath();
     ctx.moveTo(
-      shipX + Math.cos(shipDir + 2.8) * 3,
-      shipY + Math.sin(shipDir + 2.8) * 3,
+      shipX + Math.cos(shipDir + 2.8) * 4 * ss,
+      shipY + Math.sin(shipDir + 2.8) * 4 * ss,
     );
     ctx.lineTo(
       shipX + Math.cos(shipDir + Math.PI) * thrustLen,
       shipY + Math.sin(shipDir + Math.PI) * thrustLen,
     );
     ctx.lineTo(
-      shipX + Math.cos(shipDir - 2.8) * 3,
-      shipY + Math.sin(shipDir - 2.8) * 3,
+      shipX + Math.cos(shipDir - 2.8) * 4 * ss,
+      shipY + Math.sin(shipDir - 2.8) * 4 * ss,
     );
     ctx.stroke();
 
@@ -335,6 +336,7 @@ export class TitleScene implements Scene {
     renderer.drawText('LANDITAR', cx + 2, 52, '#000', 52, 'center');
     renderer.drawText('LANDITAR', cx, 50, Colors.star, 52, 'center');
     renderer.drawText('Inspired by the 1982 Atari Classic Gravitar', cx, 88, '#777', 11, 'center');
+    renderer.drawText('(also with some inspiration from Apple Lander as published in Windfall magazine)', cx, 104, '#555', 9, 'center');
 
     // === Left column: Controls ===
     const leftX = 24;
@@ -381,37 +383,36 @@ export class TitleScene implements Scene {
     }
 
     // === Bottom: Menu bar ===
-    // Background bar
-    ctx.fillStyle = 'rgba(20, 22, 40, 0.8)';
-    ctx.fillRect(0, h - 44, w, 44);
-    ctx.strokeStyle = '#333';
+    ctx.fillStyle = 'rgba(15, 17, 35, 0.9)';
+    ctx.fillRect(0, h - 56, w, 56);
+    ctx.strokeStyle = '#444';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(0, h - 44);
-    ctx.lineTo(w, h - 44);
+    ctx.moveTo(0, h - 56);
+    ctx.lineTo(w, h - 56);
     ctx.stroke();
 
     const menuItems = ['1 PLAYER', 'MULTIPLAYER', 'SETTINGS', 'PREFERENCES', 'LEVEL DEBUG'];
-    const menuY = h - 18;
+    const menuY = h - 22;
     const spacing = w / (menuItems.length + 1);
 
     for (let i = 0; i < menuItems.length; i++) {
       const mx = spacing * (i + 1);
       const selected = i === this.menuIndex;
-      const color = selected ? Colors.star : '#666';
+      const color = selected ? Colors.star : '#777';
       const blink = selected && Math.floor(t * 3) % 2 === 0;
-      const fontSize = selected ? 14 : 11;
+      const fontSize = selected ? 18 : 14;
       if (!selected || blink) {
         renderer.drawText(menuItems[i], mx, menuY, color, fontSize, 'center');
       }
       if (selected) {
-        ctx.font = `${fontSize}px monospace`;
+        ctx.font = `bold ${fontSize}px monospace`;
         const tw = ctx.measureText(menuItems[i]).width;
         ctx.strokeStyle = Colors.star;
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(mx - tw / 2, menuY + 5);
-        ctx.lineTo(mx + tw / 2, menuY + 5);
+        ctx.moveTo(mx - tw / 2, menuY + 6);
+        ctx.lineTo(mx + tw / 2, menuY + 6);
         ctx.stroke();
       }
     }
