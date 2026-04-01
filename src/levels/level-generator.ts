@@ -1161,29 +1161,52 @@ function getMinYAtX(terrain: Pt[], x: number): number | null {
 function generateAndValidateLevel(
   rng: Rng, name: string, style: LevelStyle, difficulty: number,
 ): LevelData {
+  // Only regenerate for self-intersecting terrain (unfixable)
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const level = buildLevel(rng, name, style, difficulty);
-    const issues = validateLevel(level);
 
-    if (issues.length === 0) return level;
+    if (!hasSelfIntersection(level.terrain, level.closed)) {
+      // Fix up any remaining issues in-place
+      fixupLevel(level);
+      return level;
+    }
 
-    // Log issues for debugging
     if (attempt < MAX_RETRIES) {
-      console.warn(`[Level ${name}] attempt ${attempt + 1} failed (${style}):`,
-        issues.map(i => i.rule).join(', '), '— retrying');
-      // Retry with the same style but RNG has advanced, so we get different terrain
+      console.warn(`[Level ${name}] self-intersection on attempt ${attempt + 1} (${style}) — retrying`);
     } else {
-      // Final attempt failed — fallback to wide-bowl and mark issues
-      console.error(`[Level ${name}] FAILED after ${MAX_RETRIES + 1} attempts:`,
-        issues.map(i => `${i.rule}: ${i.detail}`).join('; '));
+      console.error(`[Level ${name}] self-intersection after ${MAX_RETRIES + 1} attempts — fallback`);
       const fallback = buildLevel(rng, name, 'wide-bowl', difficulty);
-      // Tag the level name so it's visible in-game
       fallback.name = `${name} [!]`;
+      fixupLevel(fallback);
       return fallback;
     }
   }
-  // Unreachable, but TypeScript needs it
   return buildLevel(rng, name, 'wide-bowl', difficulty);
+}
+
+/** Fix issues in-place: remove inaccessible turrets/depots, fix pad placement */
+function fixupLevel(level: LevelData) {
+  const { terrain, closed } = level;
+
+  if (closed) {
+    // Remove turrets outside the polygon
+    level.turrets = level.turrets.filter(t => pointInPolygon(t.x, t.y, terrain));
+    // Remove depots outside the polygon
+    level.fuelDepots = level.fuelDepots.filter(d => pointInPolygon(d.x, d.y, terrain));
+  }
+
+  // Fix landing pad: ensure it's accessible
+  const padY = getMinYAtX(terrain, level.padX ?? 0);
+  const padOk = !closed || (
+    padY !== null &&
+    pointInPolygon(level.padX ?? 0, padY + 10, terrain) &&
+    pointInPolygon(level.padX ?? 0, padY + 50, terrain)
+  );
+
+  if (!padOk) {
+    // Try to find a better pad position
+    level.padX = findPadX(terrain, closed);
+  }
 }
 
 function buildLevel(rng: Rng, name: string, style: LevelStyle, difficulty: number): LevelData {
