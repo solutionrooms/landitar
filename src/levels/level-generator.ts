@@ -90,42 +90,42 @@ function segmentsIntersect(a1: Pt, a2: Pt, b1: Pt, b2: Pt): boolean {
 }
 
 /** Remove self-intersections by smoothing offending vertices toward their neighbors.
- *  Iterates until no intersections remain or max iterations reached. */
+ *  Processes ALL crossings each pass, iterates until clean or max iterations. */
 function resolveIntersections(pts: Pt[], closed: boolean): void {
-  const maxIter = 20;
+  const maxIter = 30;
   const n = pts.length;
 
   for (let iter = 0; iter < maxIter; iter++) {
-    let found = false;
+    const badVerts = new Set<number>();
     const segCount = closed ? n : n - 1;
 
-    for (let i = 0; i < segCount && !found; i++) {
+    // Find ALL crossing pairs in this pass
+    for (let i = 0; i < segCount; i++) {
       const a1 = pts[i], a2 = pts[(i + 1) % n];
       for (let j = i + 2; j < segCount; j++) {
         if (closed && j === segCount - 1 && i === 0) continue;
         if (!closed && j === segCount - 1 && i === 0) continue;
-        const b1 = pts[j], b2 = pts[(j + 1) % n];
-
-        if (segmentsIntersect(a1, a2, b1, b2)) {
-          // Smooth both crossing vertices toward their neighbors
-          const jPrev = pts[(j - 1 + n) % n];
-          const jNext = pts[(j + 1) % n];
-          pts[j] = { x: rn((jPrev.x + jNext.x) / 2), y: rn((jPrev.y + jNext.y) / 2) };
-
-          const iPt = (i + 1) % n;
-          if (iPt > 0 && iPt < n - 1) {
-            const iPrev = pts[iPt - 1];
-            const iNext = pts[iPt + 1];
-            pts[iPt] = { x: rn((iPrev.x + iNext.x) / 2), y: rn((iPrev.y + iNext.y) / 2) };
-          }
-
-          found = true;
-          break;
+        if (segmentsIntersect(a1, a2, pts[j], pts[(j + 1) % n])) {
+          // Mark the inner vertices of both segments for smoothing
+          badVerts.add((i + 1) % n);
+          badVerts.add(j);
         }
       }
     }
 
-    if (!found) break; // Clean — no intersections
+    if (badVerts.size === 0) break; // Clean
+
+    // Smooth all bad vertices toward their neighbors
+    for (const v of badVerts) {
+      // Don't move first/last points of open polylines
+      if (!closed && (v === 0 || v === n - 1)) continue;
+      const prev = pts[(v - 1 + n) % n];
+      const next = pts[(v + 1) % n];
+      pts[v] = {
+        x: rn((prev.x + next.x) / 2),
+        y: rn((prev.y + next.y) / 2),
+      };
+    }
   }
 }
 
@@ -184,46 +184,49 @@ function genWideBowl(rng: Rng, difficulty: number): Pt[] {
 
 /* --- 2. Deep Shaft --- */
 function genDeepShaft(rng: Rng, difficulty: number): Pt[] {
-  const halfW = rn(125 + (1 - difficulty) * 50 + rng.range(-15, 15));
-  const openHalf = rn(Math.max(45, 80 - difficulty * 20 + rng.range(-8, 8)));
-  const depth = rn(400 + difficulty * 100 + rng.range(-30, 30));
+  const halfW = rn(150 + (1 - difficulty) * 60 + rng.range(-15, 15));
+  const openHalf = rn(Math.max(55, 90 - difficulty * 20 + rng.range(-8, 8)));
+  const depth = rn(380 + difficulty * 80 + rng.range(-25, 25));
   const botY = TOP_Y - depth;
   const pts: Pt[] = [];
+  // Max inward jut: 20% of halfW so walls never approach center
+  const maxLedge = halfW * 0.2;
 
   // Left wall: nearly vertical with small ledges
-  const leftN = 12 + rng.int(0, 4);
+  const leftN = 10 + rng.int(0, 3);
   for (let i = 0; i <= leftN; i++) {
     const t = i / leftN;
-    const baseX = lerp(-openHalf, -halfW, Math.min(t * 3, 1));
+    const baseX = lerp(-openHalf, -halfW, smoothstep(Math.min(t * 2.5, 1)));
     const y = lerp(TOP_Y, botY, t);
     let jitter = 0;
     if (i > 0 && i < leftN) {
-      // Small ledges jutting inward occasionally
-      jitter = (i % 3 === 0) ? rng.range(15, 30) : rng.range(-8, 5);
+      jitter = (i % 3 === 0) ? rng.range(5, maxLedge) : rng.range(-5, 3);
     }
-    pts.push({ x: rn(baseX + jitter), y: rn(y + rng.range(-4, 4)) });
+    // Clamp: left wall must stay on left side (x < -10)
+    pts.push({ x: rn(Math.min(baseX + jitter, -10)), y: rn(y + rng.range(-3, 3)) });
   }
 
   // Bottom: narrow floor
   const botN = 4 + rng.int(0, 3);
   for (let i = 1; i < botN; i++) {
     const t = i / botN;
-    const amp = 10 + rng.range(0, 15) * difficulty;
-    const yOff = (i % 2 === 0) ? rng.range(0, amp) : -rng.range(0, amp * 0.5);
+    const amp = 8 + rng.range(0, 10) * difficulty;
+    const yOff = (i % 2 === 0) ? rng.range(0, amp) : -rng.range(0, amp * 0.3);
     pts.push({ x: rn(lerp(-halfW, halfW, t)), y: rn(botY + yOff) });
   }
 
   // Right wall: nearly vertical with ledges
-  const rightN = 12 + rng.int(0, 4);
+  const rightN = 10 + rng.int(0, 3);
   for (let i = 0; i <= rightN; i++) {
     const t = i / rightN;
-    const baseX = lerp(halfW, openHalf, Math.min(t * 3, 1));
+    const baseX = lerp(halfW, openHalf, smoothstep(Math.min(t * 2.5, 1)));
     const y = lerp(botY, TOP_Y, t);
     let jitter = 0;
     if (i > 0 && i < rightN) {
-      jitter = (i % 3 === 0) ? -rng.range(15, 30) : rng.range(-5, 8);
+      jitter = (i % 3 === 0) ? -rng.range(5, maxLedge) : rng.range(-3, 5);
     }
-    pts.push({ x: rn(baseX + jitter), y: rn(y + rng.range(-4, 4)) });
+    // Clamp: right wall must stay on right side (x > 10)
+    pts.push({ x: rn(Math.max(baseX + jitter, 10)), y: rn(y + rng.range(-3, 3)) });
   }
 
   return pts;
@@ -976,6 +979,41 @@ function placeDepots(
   return selected;
 }
 
+/** Check if a point is reachable from spawn by casting rays and counting terrain crossings.
+ *  Tests a vertical ray and a few angled rays from spawn to target. */
+function isReachableFromSpawn(
+  targetX: number, targetY: number,
+  spawnX: number, spawnY: number,
+  terrain: Pt[], closed: boolean,
+): boolean {
+  const n = terrain.length;
+  const segCount = closed ? n : n - 1;
+
+  // Try direct ray and a few offset rays
+  const testPoints = [
+    { x: targetX, y: targetY },
+    { x: targetX - 20, y: targetY },
+    { x: targetX + 20, y: targetY },
+  ];
+
+  for (const target of testPoints) {
+    let crossings = 0;
+    for (let i = 0; i < segCount; i++) {
+      const a = terrain[i], b = terrain[(i + 1) % n];
+      if (segmentsIntersect(
+        { x: spawnX, y: spawnY },
+        { x: target.x, y: target.y },
+        a, b,
+      )) crossings++;
+    }
+    // For open caves: 0 crossings = pad is outside cave (bad), 1 = reachable through opening (good)
+    // For closed tunnels: 0 = clear path (good)
+    if (!closed && crossings <= 1) return true;
+    if (closed && crossings === 0) return true;
+  }
+  return false;
+}
+
 function findPadX(terrain: Pt[], closed: boolean, spawnX = 0, spawnY = 200): number {
   const xs = terrain.map(p => p.x);
   const ys = terrain.map(p => p.y);
@@ -988,7 +1026,6 @@ function findPadX(terrain: Pt[], closed: boolean, spawnX = 0, spawnY = 200): num
   const safeRight = maxX - margin;
   const bottomThreshold = minY + (maxY - minY) * 0.35;
 
-  // Calibrate PIP for closed levels
   const pipFlipped = closed && !pointInPolygon(spawnX, spawnY, terrain);
   const isPlayable = (x: number, y: number) => {
     if (!closed) return true;
@@ -1007,9 +1044,10 @@ function findPadX(terrain: Pt[], closed: boolean, spawnX = 0, spawnY = 200): num
     if (my > bottomThreshold) continue;
     const slope = Math.abs((b.y - a.y) / (Math.abs(b.x - a.x) + 0.01));
 
-    if (closed) {
-      if (!isPlayable(mx, my + 10)) continue;
-    }
+    if (closed && !isPlayable(mx, my + 10)) continue;
+
+    // Must be reachable from spawn
+    if (!isReachableFromSpawn(mx, my, spawnX, spawnY, terrain, closed)) continue;
 
     const score = 1 / (1 + slope);
     if (score > bestScore) {
@@ -1196,6 +1234,14 @@ export function validateLevel(level: LevelData): ValidationIssue[] {
     const outsideDepots = fuelDepots.filter(d => !isPlayable(d.x, d.y));
     if (outsideDepots.length > 0) {
       issues.push({ rule: 'depots-outside', detail: `${outsideDepots.length} depots outside playable area` });
+    }
+  }
+
+  // 7. Landing pad must be reachable from spawn
+  if (level.padX !== undefined) {
+    const padY = getMinYAtX(terrain, level.padX);
+    if (padY !== null && !isReachableFromSpawn(level.padX, padY, spawnX, spawnY, terrain, closed)) {
+      issues.push({ rule: 'pad-unreachable', detail: 'No clear path from spawn to landing pad' });
     }
   }
 
