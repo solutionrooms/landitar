@@ -37,6 +37,7 @@ export interface GameSettings {
 
   // Game
   lives: number;
+  maxJumps: number;       // teleport jumps per game
   randomSeed: number;     // 0 = random each game, non-zero = fixed seed
 }
 
@@ -71,6 +72,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   soundVolume: 0.7,
 
   lives: 3,
+  maxJumps: 3,
   randomSeed: 1,
 };
 
@@ -86,6 +88,7 @@ export interface SettingDef {
 export const SETTING_DEFS: SettingDef[] = [
   // Ranges centered so the default value sits at the midpoint of each slider
   { key: 'lives',            label: 'Lives',              min: 1,    max: 5,     step: 1 },
+  { key: 'maxJumps',         label: 'Teleport Jumps',     min: 0,    max: 10,    step: 1 },
   { key: 'rotateSpeed',      label: 'Rotation Speed',     min: 2,    max: 8,     step: 0.5 },
   { key: 'thrustPower',      label: 'Thrust Power',       min: 50,   max: 400,   step: 25 },
   { key: 'maxSpeed',         label: 'Max Speed',          min: 100,  max: 600,   step: 50 },

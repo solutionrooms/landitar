@@ -19,6 +19,7 @@ const state: GameState = {
   universe: 1,
   planetsCleared: new Array(12).fill(false),
   reactorClears: 0,
+  jumpsLeft: 3,
 };
 
 setupTouchControls(input);

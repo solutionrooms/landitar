@@ -203,7 +203,7 @@ export class PlanetScene implements Scene {
       return;
     }
 
-    // Debug: N/P to cycle through planets
+    // Debug: N/P to cycle through planets, J to jump to selected rival's planet
     if (input.wasPressed('KeyN')) {
       const next = (this.levelIndex + 1) % LEVELS.length;
       ctx.replaceScene(new PlanetScene(next, null));
@@ -213,6 +213,17 @@ export class PlanetScene implements Scene {
       const prev = (this.levelIndex - 1 + LEVELS.length) % LEVELS.length;
       ctx.replaceScene(new PlanetScene(prev, null));
       return;
+    }
+    if (input.wasPressed('KeyJ') && ctx.rivals && state.jumpsLeft > 0) {
+      const rival = ctx.rivals.rivals[ctx.rivals.selectedPip];
+      if (rival && rival.scene !== 'solar' && rival.scene !== this.levelName) {
+        const idx = LEVELS.findIndex(l => l.name === rival.scene);
+        if (idx >= 0) {
+          state.jumpsLeft--;
+          ctx.replaceScene(new PlanetScene(idx, null));
+          return;
+        }
+      }
     }
 
     // Landing sequence state machine

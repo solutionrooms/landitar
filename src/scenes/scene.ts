@@ -11,6 +11,7 @@ export interface GameState {
   universe: number;       // 1-4
   planetsCleared: boolean[];  // which planets have been destroyed
   reactorClears: number;  // how many times reactor completed
+  jumpsLeft: number;      // remaining teleport jumps
 }
 
 export interface SceneContext {

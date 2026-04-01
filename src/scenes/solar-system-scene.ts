@@ -10,6 +10,7 @@ import { renderHud } from '../render/hud.js';
 import { Colors } from '../render/colors.js';
 import { playDeathSound, playExplosionSound } from '../core/audio.js';
 import { renderRivalsOverlay } from '../render/opponent-overlay.js';
+import { LEVELS } from '../levels/level-data.js';
 
 const ENTRY_RADIUS = 20;
 const FUEL_DRAIN = 1; // fuel per second in overworld
@@ -58,6 +59,19 @@ export class SolarSystemScene implements Scene {
       state.fuel = 0;
       ctx.replaceScene(new GameOverScene());
       return;
+    }
+
+    // J: jump to selected rival's planet (costs a jump charge)
+    if (input.wasPressed('KeyJ') && ctx.rivals && state.jumpsLeft > 0) {
+      const rival = ctx.rivals.rivals[ctx.rivals.selectedPip];
+      if (rival && rival.scene !== 'solar') {
+        const idx = LEVELS.findIndex(l => l.name === rival.scene);
+        if (idx >= 0) {
+          state.jumpsLeft--;
+          ctx.pushScene(new PlanetScene(idx, null));
+          return;
+        }
+      }
     }
 
     // Check for planet explosions (returning from planted explosives)

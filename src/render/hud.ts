@@ -9,8 +9,11 @@ export function renderHud(renderer: Renderer, state: GameState) {
   // Score
   renderer.drawText(`SCORE: ${state.score}`, 10, 24, Colors.text, 16);
 
-  // Lives
+  // Lives + Jumps
   renderer.drawText(`LIVES: ${state.lives}`, 10, 46, Colors.text, 14);
+  if (settings.maxJumps > 0) {
+    renderer.drawText(`JUMPS: ${state.jumpsLeft}`, 120, 46, state.jumpsLeft > 0 ? '#44AAFF' : '#555', 14);
+  }
 
   // Fuel bar
   const fuelPct = state.fuel / state.maxFuel;

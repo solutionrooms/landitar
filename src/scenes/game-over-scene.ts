@@ -82,6 +82,7 @@ export class GameOverScene implements Scene {
     ctx.state.universe = 1;
     ctx.state.planetsCleared = new Array(12).fill(false);
     ctx.state.reactorClears = 0;
+    ctx.state.jumpsLeft = settings.maxJumps;
 
     // Restore rivals (bots + human if multiplayer)
     const mp = ctx.multiplayer;

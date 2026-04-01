@@ -43,6 +43,10 @@ export interface RivalPlayer {
 
   // Cleared planets
   clearedPlanets: Set<number>;
+
+  // Jump charges
+  jumpsLeft: number;
+  jumpCooldown: number;   // seconds until bot considers jumping again
 }
 
 export class RivalsManager {
@@ -70,6 +74,8 @@ export class RivalsManager {
         ai: null,
         visual: new RivalShip(BOT_COLORS[i] || '#888888'),
         clearedPlanets: new Set(),
+        jumpsLeft: settings.maxJumps,
+        jumpCooldown: 15 + Math.random() * 20,
       });
       // Pick initial target
       this.pickNextPlanet(this.rivals[i]);
@@ -96,6 +102,8 @@ export class RivalsManager {
       ai: null,
       visual: new RivalShip('#FF6644'),
       clearedPlanets: new Set(),
+      jumpsLeft: settings.maxJumps,
+      jumpCooldown: 0,
     };
     this.rivals.push(r);
     // Auto-select the human rival for PIP display
@@ -131,6 +139,22 @@ export class RivalsManager {
 
       // If bot is actively simulated on the player's scene, skip background
       if (r.ship) continue;
+
+      // Bot jump decision: occasionally teleport to player's planet
+      r.jumpCooldown -= dt;
+      if (r.jumpsLeft > 0 && r.jumpCooldown <= 0 && r.scene !== playerScene && playerScene !== 'solar') {
+        // ~15% chance per cooldown cycle to jump to player's planet
+        if (Math.random() < 0.15) {
+          r.jumpsLeft--;
+          r.scene = playerScene;
+          r.planetTimer = 0;
+          r.planetDuration = 10 + Math.random() * 12;
+          r.killTimer = 1.5 + Math.random() * 2;
+          r.jumpCooldown = 20 + Math.random() * 15;
+          continue;
+        }
+        r.jumpCooldown = 8 + Math.random() * 10;
+      }
 
       if (r.scene === 'solar') {
         // In transit to next planet

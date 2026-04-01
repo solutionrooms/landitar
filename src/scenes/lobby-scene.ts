@@ -115,6 +115,7 @@ export class LobbyScene implements Scene {
     ctx.state.universe = 1;
     ctx.state.planetsCleared = new Array(12).fill(false);
     ctx.state.reactorClears = 0;
+    ctx.state.jumpsLeft = settings.maxJumps;
 
     // Set up rivals: 1 human + N bots
     const rm = new RivalsManager();
