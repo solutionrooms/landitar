@@ -797,7 +797,7 @@ function placeTurrets(
   // If signedArea < 0, it's clockwise; inward normal is (dy, -dx)/len.
   // If signedArea > 0, it's counterclockwise; inward normal is (-dy, dx)/len.
   const useWinding = closed && terrain.length >= 3;
-  const cwSign = useWinding ? (signedArea(terrain) < 0 ? 1 : -1) : 0;
+  const cwSign = useWinding ? (signedArea(terrain) < 0 ? -1 : 1) : 0;
 
   const candidates: { x: number; y: number; angle: number; score: number }[] = [];
   for (let i = 0; i < nSegs; i++) {
@@ -858,7 +858,7 @@ function placeDepots(
 ): FuelDepotDef[] {
   const nSegs = closed ? terrain.length : terrain.length - 1;
   const useWinding = closed && terrain.length >= 3;
-  const cwSign = useWinding ? (signedArea(terrain) < 0 ? 1 : -1) : 0;
+  const cwSign = useWinding ? (signedArea(terrain) < 0 ? -1 : 1) : 0;
 
   const candidates: Pt[] = [];
   for (let i = 0; i < nSegs; i++) {
