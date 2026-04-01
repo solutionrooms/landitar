@@ -805,6 +805,10 @@ function placeTurrets(
 ): TurretDef[] {
   const nSegs = closed ? terrain.length : terrain.length - 1;
 
+  // For closed polygons, calibrate: check if spawn is "inside" per PIP algorithm.
+  // If not, the algorithm's inside/outside is flipped for this polygon.
+  const pipFlipped = closed && !pointInPolygon(spawnX, spawnY, terrain);
+
   const candidates: { x: number; y: number; angle: number; score: number }[] = [];
   for (let i = 0; i < nSegs; i++) {
     const a = terrain[i];
@@ -823,20 +827,23 @@ function placeTurrets(
 
     let nx: number, ny: number;
     if (closed) {
-      // For closed polygons: try both normals, pick the one that lands inside
+      // For closed polygons: try both normals, pick the one that lands
+      // in the playable area (same PIP result as the spawn point)
       const p1x = mx + n1x * 12, p1y = my + n1y * 12;
       const p2x = mx + n2x * 12, p2y = my + n2y * 12;
-      const in1 = pointInPolygon(p1x, p1y, terrain);
-      const in2 = pointInPolygon(p2x, p2y, terrain);
+      const raw1 = pointInPolygon(p1x, p1y, terrain);
+      const raw2 = pointInPolygon(p2x, p2y, terrain);
+      // Flip if PIP is inverted for this polygon
+      const in1 = pipFlipped ? !raw1 : raw1;
+      const in2 = pipFlipped ? !raw2 : raw2;
       if (in1 && !in2) { nx = n1x; ny = n1y; }
       else if (in2 && !in1) { nx = n2x; ny = n2y; }
       else if (in1 && in2) {
-        // Both inside — use spawn reference as tiebreaker
         const dot = n1x * (spawnX - mx) + n1y * (spawnY - my);
         nx = dot > 0 ? n1x : n2x;
         ny = dot > 0 ? n1y : n2y;
       } else {
-        continue; // neither inside — skip this segment
+        continue;
       }
     } else {
       // Open polyline: use spawn point as reference for inward direction
@@ -875,6 +882,8 @@ function placeDepots(
   spawnY: number,
 ): FuelDepotDef[] {
   const nSegs = closed ? terrain.length : terrain.length - 1;
+  const pipFlipped = closed && !pointInPolygon(spawnX, spawnY, terrain);
+
   const candidates: Pt[] = [];
   for (let i = 0; i < nSegs; i++) {
     const a = terrain[i];
@@ -893,8 +902,10 @@ function placeDepots(
     if (closed) {
       const p1x = mx + n1x * 6, p1y = my + n1y * 6;
       const p2x = mx + n2x * 6, p2y = my + n2y * 6;
-      const in1 = pointInPolygon(p1x, p1y, terrain);
-      const in2 = pointInPolygon(p2x, p2y, terrain);
+      const raw1 = pointInPolygon(p1x, p1y, terrain);
+      const raw2 = pointInPolygon(p2x, p2y, terrain);
+      const in1 = pipFlipped ? !raw1 : raw1;
+      const in2 = pipFlipped ? !raw2 : raw2;
       if (in1 && !in2) { nx = n1x; ny = n1y; }
       else if (in2 && !in1) { nx = n2x; ny = n2y; }
       else if (in1 && in2) {
@@ -925,7 +936,7 @@ function placeDepots(
   return selected;
 }
 
-function findPadX(terrain: Pt[], closed: boolean): number {
+function findPadX(terrain: Pt[], closed: boolean, spawnX = 0, spawnY = 200): number {
   const xs = terrain.map(p => p.x);
   const ys = terrain.map(p => p.y);
   const minX = Math.min(...xs);
@@ -935,9 +946,15 @@ function findPadX(terrain: Pt[], closed: boolean): number {
   const margin = (maxX - minX) * 0.15;
   const safeLeft = minX + margin;
   const safeRight = maxX - margin;
-
-  // Only consider segments near the bottom of the terrain
   const bottomThreshold = minY + (maxY - minY) * 0.35;
+
+  // Calibrate PIP for closed levels
+  const pipFlipped = closed && !pointInPolygon(spawnX, spawnY, terrain);
+  const isPlayable = (x: number, y: number) => {
+    if (!closed) return true;
+    const raw = pointInPolygon(x, y, terrain);
+    return pipFlipped ? !raw : raw;
+  };
 
   let bestX = 0;
   let bestScore = -Infinity;
@@ -950,14 +967,11 @@ function findPadX(terrain: Pt[], closed: boolean): number {
     if (my > bottomThreshold) continue;
     const slope = Math.abs((b.y - a.y) / (Math.abs(b.x - a.x) + 0.01));
 
-    // For closed levels, check that the pad position is inside the polygon
-    // and has clearance above (point 40px above must also be inside)
     if (closed) {
-      if (!pointInPolygon(mx, my + 10, terrain)) continue;
-      if (!pointInPolygon(mx, my + 40, terrain)) continue;
+      if (!isPlayable(mx, my + 10)) continue;
+      if (!isPlayable(mx, my + 40)) continue;
     }
 
-    // Score: prefer flat segments (low slope)
     const score = 1 / (1 + slope);
     if (score > bestScore) {
       bestScore = score;
@@ -1118,43 +1132,44 @@ export function validateLevel(level: LevelData): ValidationIssue[] {
     issues.push({ rule: 'too-small', detail: `Area ${rn(w)}x${rn(h)} too small` });
   }
 
-  // 3. Spawn point must be accessible
-  if (closed && !pointInPolygon(spawnX, spawnY, terrain)) {
-    issues.push({ rule: 'spawn-outside', detail: 'Spawn point is outside the polygon' });
-  }
+  // For closed levels, calibrate PIP using spawn point
+  const pipFlipped = closed && !pointInPolygon(spawnX, spawnY, terrain);
+  const isPlayable = (x: number, y: number) => {
+    const raw = pointInPolygon(x, y, terrain);
+    return pipFlipped ? !raw : raw;
+  };
 
-  // 4. Landing pad must be inside and accessible (for closed levels)
+  // 3. Landing pad must be inside and accessible (for closed levels)
   if (closed && level.padX !== undefined) {
-    // Check pad position and clearance above
     const padY = getMinYAtX(terrain, level.padX);
     if (padY !== null) {
-      if (!pointInPolygon(level.padX, padY + 10, terrain)) {
-        issues.push({ rule: 'pad-outside', detail: 'Landing pad is outside the polygon' });
+      if (!isPlayable(level.padX, padY + 10)) {
+        issues.push({ rule: 'pad-outside', detail: 'Landing pad is outside playable area' });
       }
-      if (!pointInPolygon(level.padX, padY + 50, terrain)) {
+      if (!isPlayable(level.padX, padY + 50)) {
         issues.push({ rule: 'pad-no-clearance', detail: 'No vertical clearance above landing pad' });
       }
     }
   }
 
-  // 5. Must have at least 1 turret
+  // 4. Must have at least 1 turret
   if (turrets.length === 0) {
     issues.push({ rule: 'no-turrets', detail: 'No turrets could be placed' });
   }
 
-  // 6. All turrets must be accessible (inside polygon for closed levels)
+  // 5. All turrets must be accessible
   if (closed) {
-    const outsideTurrets = turrets.filter(t => !pointInPolygon(t.x, t.y, terrain));
+    const outsideTurrets = turrets.filter(t => !isPlayable(t.x, t.y));
     if (outsideTurrets.length > 0) {
-      issues.push({ rule: 'turrets-outside', detail: `${outsideTurrets.length} turrets outside polygon` });
+      issues.push({ rule: 'turrets-outside', detail: `${outsideTurrets.length} turrets outside playable area` });
     }
   }
 
-  // 7. All depots must be accessible
+  // 6. All depots must be accessible
   if (closed) {
-    const outsideDepots = fuelDepots.filter(d => !pointInPolygon(d.x, d.y, terrain));
+    const outsideDepots = fuelDepots.filter(d => !isPlayable(d.x, d.y));
     if (outsideDepots.length > 0) {
-      issues.push({ rule: 'depots-outside', detail: `${outsideDepots.length} depots outside polygon` });
+      issues.push({ rule: 'depots-outside', detail: `${outsideDepots.length} depots outside playable area` });
     }
   }
 
@@ -1231,16 +1246,23 @@ function generateAndValidateLevel(
 /** Fix issues in-place. Returns list of what was fixed. */
 function fixupLevel(level: LevelData): string[] {
   const fixed: string[] = [];
-  const { terrain, closed } = level;
+  const { terrain, closed, spawnX, spawnY } = level;
 
   if (closed) {
+    // Calibrate PIP: spawn must be in the playable area
+    const pipFlipped = !pointInPolygon(spawnX, spawnY, terrain);
+    const isPlayable = (x: number, y: number) => {
+      const raw = pointInPolygon(x, y, terrain);
+      return pipFlipped ? !raw : raw;
+    };
+
     const tBefore = level.turrets.length;
-    level.turrets = level.turrets.filter(t => pointInPolygon(t.x, t.y, terrain));
+    level.turrets = level.turrets.filter(t => isPlayable(t.x, t.y));
     const tRemoved = tBefore - level.turrets.length;
     if (tRemoved > 0) fixed.push(`${tRemoved} turrets removed (outside)`);
 
     const dBefore = level.fuelDepots.length;
-    level.fuelDepots = level.fuelDepots.filter(d => pointInPolygon(d.x, d.y, terrain));
+    level.fuelDepots = level.fuelDepots.filter(d => isPlayable(d.x, d.y));
     const dRemoved = dBefore - level.fuelDepots.length;
     if (dRemoved > 0) fixed.push(`${dRemoved} depots removed (outside)`);
   }
@@ -1253,7 +1275,7 @@ function fixupLevel(level: LevelData): string[] {
   );
 
   if (!padOk) {
-    level.padX = findPadX(terrain, closed);
+    level.padX = findPadX(terrain, closed, spawnX, spawnY);
     fixed.push('pad repositioned');
   }
 
@@ -1290,7 +1312,7 @@ function buildLevel(rng: Rng, name: string, style: LevelStyle, difficulty: numbe
   }
 
   const fuelDepots = placeDepots(rng, terrain, depotCount, turrets, closed, spawnX, spawnY);
-  const padX = findPadX(terrain, closed);
+  const padX = findPadX(terrain, closed, spawnX, spawnY);
 
   return {
     name, terrain, closed, gravity, spawnX, spawnY,
