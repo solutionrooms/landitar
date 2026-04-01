@@ -1054,16 +1054,47 @@ function assignStyles(rng: Rng): LevelStyle[] {
    MAIN EXPORT
    ================================================================ */
 
+/** Log entry for a rejected level attempt */
+export interface RejectedAttempt {
+  name: string;
+  style: string;
+  attempt: number;
+  reason: string;
+  terrain: { x: number; y: number }[];
+  closed: boolean;
+  turrets: TurretDef[];
+  fuelDepots: FuelDepotDef[];
+  islands?: { x: number; y: number }[][];
+}
+
+/** Generation log — stores rejected attempts and fixups for debugging */
+export interface GenerationLog {
+  seed: number;
+  rejected: RejectedAttempt[];
+  fixups: { name: string; removed: string[] }[];
+}
+
+/** Last generation log, accessible for debug UI */
+export let lastGenerationLog: GenerationLog | null = null;
+
 export function generateLevels(seed: number): LevelData[] {
   const rng = new Rng(seed);
   const styles = assignStyles(rng);
+  const log: GenerationLog = { seed, rejected: [], fixups: [] };
+  lastGenerationLog = log;
 
-  return NAMES.map((name, i) => {
+  const levels = NAMES.map((name, i) => {
     const difficulty = i / 11;
     const style = styles[i];
-    const level = generateAndValidateLevel(rng, name, style, difficulty);
+    const level = generateAndValidateLevel(rng, name, style, difficulty, log);
     return level;
   });
+
+  if (log.rejected.length > 0) {
+    console.warn(`[LevelGen] seed=${seed}: ${log.rejected.length} rejected attempts across ${new Set(log.rejected.map(r => r.name)).size} levels`);
+  }
+
+  return levels;
 }
 
 const MAX_RETRIES = 5;
@@ -1160,6 +1191,7 @@ function getMinYAtX(terrain: Pt[], x: number): number | null {
 
 function generateAndValidateLevel(
   rng: Rng, name: string, style: LevelStyle, difficulty: number,
+  log: GenerationLog,
 ): LevelData {
   // Only regenerate for self-intersecting terrain (unfixable)
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -1167,35 +1199,52 @@ function generateAndValidateLevel(
 
     if (!hasSelfIntersection(level.terrain, level.closed)) {
       // Fix up any remaining issues in-place
-      fixupLevel(level);
+      const fixups = fixupLevel(level);
+      if (fixups.length > 0) {
+        log.fixups.push({ name, removed: fixups });
+      }
       return level;
     }
 
-    if (attempt < MAX_RETRIES) {
-      console.warn(`[Level ${name}] self-intersection on attempt ${attempt + 1} (${style}) — retrying`);
-    } else {
-      console.error(`[Level ${name}] self-intersection after ${MAX_RETRIES + 1} attempts — fallback`);
+    // Log the rejected attempt with its terrain for debug viewing
+    log.rejected.push({
+      name, style, attempt: attempt + 1,
+      reason: 'self-intersection',
+      terrain: [...level.terrain],
+      closed: level.closed,
+      turrets: [...level.turrets],
+      fuelDepots: [...level.fuelDepots],
+      islands: level.islands?.map(is => [...is]),
+    });
+
+    if (attempt >= MAX_RETRIES) {
       const fallback = buildLevel(rng, name, 'wide-bowl', difficulty);
       fallback.name = `${name} [!]`;
-      fixupLevel(fallback);
+      const fixups = fixupLevel(fallback);
+      if (fixups.length > 0) log.fixups.push({ name, removed: fixups });
       return fallback;
     }
   }
   return buildLevel(rng, name, 'wide-bowl', difficulty);
 }
 
-/** Fix issues in-place: remove inaccessible turrets/depots, fix pad placement */
-function fixupLevel(level: LevelData) {
+/** Fix issues in-place. Returns list of what was fixed. */
+function fixupLevel(level: LevelData): string[] {
+  const fixed: string[] = [];
   const { terrain, closed } = level;
 
   if (closed) {
-    // Remove turrets outside the polygon
+    const tBefore = level.turrets.length;
     level.turrets = level.turrets.filter(t => pointInPolygon(t.x, t.y, terrain));
-    // Remove depots outside the polygon
+    const tRemoved = tBefore - level.turrets.length;
+    if (tRemoved > 0) fixed.push(`${tRemoved} turrets removed (outside)`);
+
+    const dBefore = level.fuelDepots.length;
     level.fuelDepots = level.fuelDepots.filter(d => pointInPolygon(d.x, d.y, terrain));
+    const dRemoved = dBefore - level.fuelDepots.length;
+    if (dRemoved > 0) fixed.push(`${dRemoved} depots removed (outside)`);
   }
 
-  // Fix landing pad: ensure it's accessible
   const padY = getMinYAtX(terrain, level.padX ?? 0);
   const padOk = !closed || (
     padY !== null &&
@@ -1204,9 +1253,11 @@ function fixupLevel(level: LevelData) {
   );
 
   if (!padOk) {
-    // Try to find a better pad position
     level.padX = findPadX(terrain, closed);
+    fixed.push('pad repositioned');
   }
+
+  return fixed;
 }
 
 function buildLevel(rng: Rng, name: string, style: LevelStyle, difficulty: number): LevelData {
