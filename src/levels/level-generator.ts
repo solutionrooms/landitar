@@ -221,70 +221,72 @@ function genTerraced(rng: Rng, difficulty: number): Pt[] {
 
 /* --- 4. Mesa --- */
 function genMesa(rng: Rng, difficulty: number): Pt[] {
-  const halfW = rn(280 + (1 - difficulty) * 40 + rng.range(-20, 20));
-  const openHalf = rn(Math.max(50, 90 - difficulty * 25 + rng.range(-8, 8)));
-  const depth = rn(300 + difficulty * 80 + rng.range(-20, 20));
+  const halfW = rn(300 + (1 - difficulty) * 50 + rng.range(-20, 20));
+  const openHalf = rn(Math.max(60, 100 - difficulty * 25 + rng.range(-8, 8)));
+  const depth = rn(280 + difficulty * 60 + rng.range(-20, 20));
   const botY = TOP_Y - depth;
-  const mesaHeight = rn(depth * (0.4 + rng.range(0, 0.15)));
-  const mesaHalfW = rn(halfW * (0.2 + rng.range(0, 0.15)));
+  // Mesa must stay short enough to not block passage — max 25% of depth
+  const mesaHeight = rn(depth * (0.15 + rng.range(0, 0.10)));
+  // Mesa should be narrow relative to cave width
+  const mesaHalfW = rn(halfW * (0.12 + rng.range(0, 0.08)));
   const pts: Pt[] = [];
 
-  // Left wall
+  // Left wall: gentle curve
   const leftN = 6 + rng.int(0, 3);
   for (let i = 0; i <= leftN; i++) {
     const t = i / leftN;
     const x = lerp(-openHalf, -halfW, smoothstep(Math.min(t * 2, 1)));
     const y = lerp(TOP_Y, botY, t);
-    const wobble = (i > 0 && i < leftN) ? rng.range(-10, 10) : 0;
-    pts.push({ x: rn(x + wobble), y: rn(y + rng.range(-5, 5) * (i > 0 && i < leftN ? 1 : 0)) });
+    const wobble = (i > 0 && i < leftN) ? rng.range(-8, 8) : 0;
+    pts.push({ x: rn(x + wobble), y: rn(y + wobble * 0.3) });
   }
 
-  // Floor left of mesa
+  // Floor left of mesa — flat-ish
   const floorL = 3 + rng.int(0, 2);
   for (let i = 1; i <= floorL; i++) {
     const t = i / (floorL + 1);
     pts.push({
-      x: rn(lerp(-halfW, -mesaHalfW - 15, t) + rng.range(-5, 5)),
-      y: rn(botY + rng.range(-5, 8)),
+      x: rn(lerp(-halfW, -mesaHalfW - 20, t) + rng.range(-5, 5)),
+      y: rn(botY + rng.range(0, 8)),
     });
   }
 
-  // Mesa: up, across top, down
+  // Mesa: gentle rise, flat top, gentle descent
   const mesaTopY = botY + mesaHeight;
-  pts.push({ x: rn(-mesaHalfW + rng.range(-5, 5)), y: rn(botY + rng.range(0, 5)) });
-  pts.push({ x: rn(-mesaHalfW + rng.range(-3, 3)), y: rn(mesaTopY + rng.range(-5, 5)) });
+  pts.push({ x: rn(-mesaHalfW - 10), y: rn(botY + rng.range(0, 5)) });
+  pts.push({ x: rn(-mesaHalfW), y: rn(mesaTopY + rng.range(-3, 3)) });
 
-  // Mesa top with some texture
-  const mesaTopN = 3 + rng.int(0, 2);
+  // Mesa top — some texture
+  const mesaTopN = 2 + rng.int(0, 2);
   for (let i = 1; i < mesaTopN; i++) {
     const t = i / mesaTopN;
     pts.push({
-      x: rn(lerp(-mesaHalfW, mesaHalfW, t) + rng.range(-5, 5)),
-      y: rn(mesaTopY + rng.range(-8, 8)),
+      x: rn(lerp(-mesaHalfW, mesaHalfW, t) + rng.range(-3, 3)),
+      y: rn(mesaTopY + rng.range(-5, 5)),
     });
   }
 
-  pts.push({ x: rn(mesaHalfW + rng.range(-3, 3)), y: rn(mesaTopY + rng.range(-5, 5)) });
-  pts.push({ x: rn(mesaHalfW + rng.range(-5, 5)), y: rn(botY + rng.range(0, 5)) });
+  pts.push({ x: rn(mesaHalfW), y: rn(mesaTopY + rng.range(-3, 3)) });
+  pts.push({ x: rn(mesaHalfW + 10), y: rn(botY + rng.range(0, 5)) });
 
-  // Floor right of mesa
+  // Floor right of mesa — flat-ish
   const floorR = 3 + rng.int(0, 2);
   for (let i = 1; i <= floorR; i++) {
     const t = i / (floorR + 1);
     pts.push({
-      x: rn(lerp(mesaHalfW + 15, halfW, t) + rng.range(-5, 5)),
-      y: rn(botY + rng.range(-5, 8)),
+      x: rn(lerp(mesaHalfW + 20, halfW, t) + rng.range(-5, 5)),
+      y: rn(botY + rng.range(0, 8)),
     });
   }
 
-  // Right wall
+  // Right wall: gentle curve
   const rightN = 6 + rng.int(0, 3);
   for (let i = 0; i <= rightN; i++) {
     const t = i / rightN;
     const x = lerp(halfW, openHalf, smoothstep(Math.min(t * 2, 1)));
     const y = lerp(botY, TOP_Y, t);
-    const wobble = (i > 0 && i < rightN) ? rng.range(-10, 10) : 0;
-    pts.push({ x: rn(x + wobble), y: rn(y + rng.range(-5, 5) * (i > 0 && i < rightN ? 1 : 0)) });
+    const wobble = (i > 0 && i < rightN) ? rng.range(-8, 8) : 0;
+    pts.push({ x: rn(x + wobble), y: rn(y + wobble * 0.3) });
   }
 
   return pts;
@@ -691,11 +693,17 @@ function placeDepots(
 
 function findPadX(terrain: Pt[]): number {
   const xs = terrain.map(p => p.x);
+  const ys = terrain.map(p => p.y);
   const minX = Math.min(...xs);
   const maxX = Math.max(...xs);
-  const margin = (maxX - minX) * 0.2;
+  const minY = Math.min(...ys);
+  const margin = (maxX - minX) * 0.15;
   const safeLeft = minX + margin;
   const safeRight = maxX - margin;
+
+  // Only consider segments near the bottom of the terrain (within 30% of depth from floor)
+  const maxY = Math.max(...ys);
+  const bottomThreshold = minY + (maxY - minY) * 0.35;
 
   let bestX = 0;
   let bestSlope = Infinity;
@@ -703,7 +711,9 @@ function findPadX(terrain: Pt[]): number {
     const a = terrain[i];
     const b = terrain[i + 1];
     const mx = (a.x + b.x) / 2;
+    const my = (a.y + b.y) / 2;
     if (mx < safeLeft || mx > safeRight) continue;
+    if (my > bottomThreshold) continue; // skip wall segments — only use floor
     const slope = Math.abs((b.y - a.y) / (Math.abs(b.x - a.x) + 0.01));
     if (slope < bestSlope) {
       bestSlope = slope;
