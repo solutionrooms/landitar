@@ -203,6 +203,18 @@ export class PlanetScene implements Scene {
       return;
     }
 
+    // Debug: N/P to cycle through planets
+    if (input.wasPressed('KeyN')) {
+      const next = (this.levelIndex + 1) % LEVELS.length;
+      ctx.replaceScene(new PlanetScene(next, null));
+      return;
+    }
+    if (input.wasPressed('KeyP')) {
+      const prev = (this.levelIndex - 1 + LEVELS.length) % LEVELS.length;
+      ctx.replaceScene(new PlanetScene(prev, null));
+      return;
+    }
+
     // Landing sequence state machine
     if (this.landPhase !== 'none') {
       this.updateLandPhase(dt, ctx);
