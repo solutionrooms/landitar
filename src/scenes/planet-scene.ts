@@ -144,7 +144,7 @@ export class PlanetScene implements Scene {
     // Create landing pad - use level's padX or pick a random flat-ish spot
     const padX = level.padX ?? this.pickPadX(level.terrain);
     const groundY = this.terrain.getYAtX(padX) ?? -50;
-    this.landingPad = new LandingPad(padX, groundY);
+    this.landingPad = new LandingPad(padX, groundY, (x) => this.terrain.getYAtX(x));
 
     // Restore saved state if returning to this planet
     if (this.planet?.savedState) {

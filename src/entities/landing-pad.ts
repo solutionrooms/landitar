@@ -6,13 +6,24 @@ import { settings } from '../core/settings.js';
 const PAD_COLOR = '#FFFF00';
 const STILT_COLOR = '#888800';
 
+/** Function to query terrain Y at a given X */
+export type TerrainYFn = (x: number) => number | null;
+
 export class LandingPad {
   pos: Vec2;           // center of the platform top surface
-  groundY: number;     // terrain Y at this x position
+  private leftLegY: number;
+  private rightLegY: number;
 
-  constructor(x: number, groundY: number) {
-    this.groundY = groundY;
-    this.pos = new Vec2(x, groundY + settings.padHeight);
+  constructor(x: number, groundY: number, terrainYFn?: TerrainYFn) {
+    const hw = settings.padWidth / 2;
+    // Query terrain Y at each leg position so legs reach the actual ground
+    const leftX = x - hw + 3;
+    const rightX = x + hw - 3;
+    this.leftLegY = terrainYFn?.(leftX) ?? groundY;
+    this.rightLegY = terrainYFn?.(rightX) ?? groundY;
+    // Pad sits at the higher of the two leg ground points + padHeight
+    const baseY = Math.max(this.leftLegY, this.rightLegY);
+    this.pos = new Vec2(x, baseY + settings.padHeight);
   }
 
   get left(): number { return this.pos.x - settings.padWidth / 2; }
@@ -39,15 +50,16 @@ export class LandingPad {
 
   getSegments(): Segment[] {
     const hw = settings.padWidth / 2;
-    const h = settings.padHeight;
     const gx = this.pos.x;
-    const gy = this.groundY;
-    const ty = gy + h;
+    const ty = this.pos.y;
 
     return [
+      // Platform surface
       { x1: gx - hw, y1: ty, x2: gx + hw, y2: ty },
-      { x1: gx - hw + 3, y1: gy, x2: gx - hw + 3, y2: ty },
-      { x1: gx + hw - 3, y1: gy, x2: gx + hw - 3, y2: ty },
+      // Left leg: from terrain to platform
+      { x1: gx - hw + 3, y1: this.leftLegY, x2: gx - hw + 3, y2: ty },
+      // Right leg: from terrain to platform
+      { x1: gx + hw - 3, y1: this.rightLegY, x2: gx + hw - 3, y2: ty },
     ];
   }
 
