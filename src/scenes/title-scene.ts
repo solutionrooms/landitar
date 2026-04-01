@@ -9,6 +9,7 @@ import { generateLevels } from '../levels/level-generator.js';
 import { setLevels } from '../levels/level-data.js';
 import { LobbyScene } from './lobby-scene.js';
 import { PreferencesScene } from './preferences-scene.js';
+import { LevelDebugScene } from './level-debug-scene.js';
 import { MultiplayerSession } from '../net/multiplayer-session.js';
 import { RivalsManager } from '../entities/rivals.js';
 
@@ -20,7 +21,7 @@ export class TitleScene implements Scene {
   private ctx!: SceneContext;
   private selectedIndex = 0;
   private showSettings = false;
-  private menuIndex = 0; // 0=1player, 1=3bots, 2=2p+2bots, 3=settings, 4=preferences
+  private menuIndex = 0; // 0=1player, 1=3bots, 2=2p+2bots, 3=settings, 4=preferences, 5=debug
 
   // Key repeat state for held arrow keys in settings
   private holdDir = 0;        // -1 left, +1 right, 0 none
@@ -41,10 +42,10 @@ export class TitleScene implements Scene {
       this.updateSettings(dt, input, ctx);
     } else {
       if (input.wasPressed('ArrowUp') || input.wasPressed('KeyW')) {
-        this.menuIndex = (this.menuIndex - 1 + 5) % 5;
+        this.menuIndex = (this.menuIndex - 1 + 6) % 6;
       }
       if (input.wasPressed('ArrowDown') || input.wasPressed('KeyS')) {
-        this.menuIndex = (this.menuIndex + 1) % 5;
+        this.menuIndex = (this.menuIndex + 1) % 6;
       }
       if (input.wasPressed('Enter') || input.wasPressed('Space')) {
         if (this.menuIndex === 0) {
@@ -57,6 +58,11 @@ export class TitleScene implements Scene {
           this.showSettings = true;
         } else if (this.menuIndex === 4) {
           ctx.pushScene(new PreferencesScene());
+        } else if (this.menuIndex === 5) {
+          // Generate levels first so debug scene has data
+          const seed = settings.randomSeed || Math.floor(Math.random() * 2147483647);
+          setLevels(generateLevels(seed));
+          ctx.pushScene(new LevelDebugScene());
         }
       }
     }
@@ -185,7 +191,7 @@ export class TitleScene implements Scene {
     renderer.drawText('SHIFT or S  -  Shield / Tractor Beam', cx, y0 + 84, Colors.hud, 12, 'center');
 
     // Menu options
-    const menuItems = ['1 PLAYER', 'VS 3 BOTS', '2P + 2 BOTS', 'SETTINGS', 'PREFERENCES'];
+    const menuItems = ['1 PLAYER', 'VS 3 BOTS', '2P + 2 BOTS', 'SETTINGS', 'PREFERENCES', 'LEVEL DEBUG'];
     const menuY = cy + 150;
     for (let i = 0; i < menuItems.length; i++) {
       const selected = i === this.menuIndex;

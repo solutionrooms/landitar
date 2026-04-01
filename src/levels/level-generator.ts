@@ -1068,9 +1068,9 @@ export function generateLevels(seed: number): LevelData[] {
 
 const MAX_RETRIES = 5;
 
-interface ValidationIssue { rule: string; detail: string }
+export interface ValidationIssue { rule: string; detail: string }
 
-function validateLevel(level: LevelData): ValidationIssue[] {
+export function validateLevel(level: LevelData): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const { terrain, closed, turrets, fuelDepots, spawnX, spawnY } = level;
 
