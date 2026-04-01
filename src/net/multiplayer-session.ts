@@ -13,6 +13,8 @@ export interface RemoteState {
 export interface RemoteShipState {
   x: number;
   y: number;
+  vx: number;
+  vy: number;
   angle: number;
   alive: boolean;
   shielded: boolean;
@@ -35,7 +37,7 @@ export class MultiplayerSession {
 
   // Remote player state
   remote: RemoteState = { score: 0, lives: 0, fuel: 0, gameOver: false, finalScore: 0 };
-  remoteShip: RemoteShipState = { x: 0, y: 0, angle: 0, alive: false, shielded: false, thrusting: false, bullets: [], scene: '' };
+  remoteShip: RemoteShipState = { x: 0, y: 0, vx: 0, vy: 0, angle: 0, alive: false, shielded: false, thrusting: false, bullets: [], scene: '' };
 
   // Video streams
   remoteStream: MediaStream | null = null;
@@ -44,7 +46,8 @@ export class MultiplayerSession {
   // Internal
   private lastShipBroadcast = 0;
   private peer: Peer | null = null;
-  private dataConn: DataConnection | null = null;
+  private dataConn: DataConnection | null = null;     // reliable — game events
+  private fastConn: DataConnection | null = null;      // unreliable — ship state
   private mediaConn: MediaConnection | null = null;
   private localStream: MediaStream | null = null;
   private messageHandlers: ((msg: PeerMessage) => void)[] = [];
@@ -55,6 +58,11 @@ export class MultiplayerSession {
   }
 
   sendMessage(msg: PeerMessage) {
+    // Ship state goes via unreliable channel for lower latency
+    if (msg.type === 'ship-state' && this.fastConn?.open) {
+      this.fastConn.send(msg);
+      return;
+    }
     if (this.dataConn?.open) {
       this.dataConn.send(msg);
     }
@@ -68,15 +76,16 @@ export class MultiplayerSession {
     this.sendMessage({ type: 'score-update', payload: state });
   }
 
-  /** Broadcast ship position/state at ~12Hz */
+  /** Broadcast ship position/state at ~20Hz */
   broadcastShipState(ship: { pos: { x: number; y: number }; vel: { x: number; y: number }; angle: number; alive: boolean; shielded: boolean; thrusting: boolean; bullets: { pos: { x: number; y: number } }[] }, scene: string) {
     const now = Date.now();
-    if (now - this.lastShipBroadcast < 80) return;
+    if (now - this.lastShipBroadcast < 50) return;
     this.lastShipBroadcast = now;
     this.sendMessage({
       type: 'ship-state',
       payload: {
         x: ship.pos.x, y: ship.pos.y,
+        vx: ship.vel.x, vy: ship.vel.y,
         angle: ship.angle,
         alive: ship.alive,
         shielded: ship.shielded,
@@ -106,10 +115,15 @@ export class MultiplayerSession {
         reject(err);
       });
 
-      // Wait for guest data connection
+      // Wait for guest data connections (reliable + unreliable)
       this.peer.on('connection', (conn) => {
-        this.dataConn = conn;
-        this.setupDataConn();
+        if ((conn as any).reliable === false || conn.label === 'fast') {
+          this.fastConn = conn;
+          this.setupDataConn(conn);
+        } else {
+          this.dataConn = conn;
+          this.setupDataConn(conn);
+        }
       });
 
       // Wait for guest media call
@@ -136,9 +150,12 @@ export class MultiplayerSession {
       this.peer.on('open', () => {
         this.peerId = this.peer!.id;
 
-        // Data connection
+        // Reliable data connection (game events)
         this.dataConn = this.peer!.connect(hostPeerId, { reliable: true });
-        this.setupDataConn();
+        // Unreliable data connection (ship state — low latency)
+        this.fastConn = this.peer!.connect(hostPeerId, { reliable: false, label: 'fast' });
+        this.setupDataConn(this.dataConn);
+        this.setupDataConn(this.fastConn);
 
         this.dataConn.on('open', () => {
           // Media call
@@ -166,16 +183,15 @@ export class MultiplayerSession {
     });
   }
 
-  private setupDataConn() {
-    if (!this.dataConn) return;
+  private setupDataConn(conn: DataConnection) {
+    if (!conn) return;
 
-    this.dataConn.on('open', () => {
+    conn.on('open', () => {
       this.connectionState = 'connected';
     });
 
-    this.dataConn.on('data', (data: unknown) => {
+    conn.on('data', (data: unknown) => {
       const msg = data as PeerMessage;
-      // Handle score updates internally
       if (msg.type === 'score-update') {
         Object.assign(this.remote, msg.payload);
       } else if (msg.type === 'ship-state') {
@@ -187,7 +203,7 @@ export class MultiplayerSession {
       for (const h of this.messageHandlers) h(msg);
     });
 
-    this.dataConn.on('close', () => {
+    conn.on('close', () => {
       this.connectionState = 'lost';
     });
   }
@@ -204,11 +220,13 @@ export class MultiplayerSession {
 
   destroy() {
     this.dataConn?.close();
+    this.fastConn?.close();
     this.mediaConn?.close();
     this.peer?.destroy();
     this.localStream?.getTracks().forEach(t => t.stop());
     this.peer = null;
     this.dataConn = null;
+    this.fastConn = null;
     this.mediaConn = null;
     this.localStream = null;
     this.remoteStream = null;
