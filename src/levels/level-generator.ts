@@ -1138,15 +1138,7 @@ export function validateLevel(level: LevelData): ValidationIssue[] {
     return pipFlipped ? !raw : raw;
   };
 
-  // 3. Landing pad must be inside playable area (for closed levels)
-  if (closed && level.padX !== undefined) {
-    const padY = getMinYAtX(terrain, level.padX);
-    if (padY !== null && !isPlayable(level.padX, padY + 10)) {
-      issues.push({ rule: 'pad-outside', detail: 'Landing pad is outside playable area' });
-    }
-  }
-
-  // 4. Must have at least 1 turret
+  // 3. Must have at least 1 turret
   if (turrets.length === 0) {
     issues.push({ rule: 'no-turrets', detail: 'No turrets could be placed' });
   }
