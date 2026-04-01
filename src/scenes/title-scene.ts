@@ -21,7 +21,7 @@ export class TitleScene implements Scene {
   private ctx!: SceneContext;
   private selectedIndex = 0;
   private showSettings = false;
-  private menuIndex = 0; // 0=1player, 1=3bots, 2=2p+2bots, 3=settings, 4=preferences, 5=debug
+  private menuIndex = 0; // 0=1p, 1=3bots, 2=2p, 3=2p+2bots, 4=settings, 5=prefs, 6=debug
 
   // Key repeat state for held arrow keys in settings
   private holdDir = 0;        // -1 left, +1 right, 0 none
@@ -42,10 +42,10 @@ export class TitleScene implements Scene {
       this.updateSettings(dt, input, ctx);
     } else {
       if (input.wasPressed('ArrowUp') || input.wasPressed('KeyW')) {
-        this.menuIndex = (this.menuIndex - 1 + 6) % 6;
+        this.menuIndex = (this.menuIndex - 1 + 7) % 7;
       }
       if (input.wasPressed('ArrowDown') || input.wasPressed('KeyS')) {
-        this.menuIndex = (this.menuIndex + 1) % 6;
+        this.menuIndex = (this.menuIndex + 1) % 7;
       }
       if (input.wasPressed('Enter') || input.wasPressed('Space')) {
         if (this.menuIndex === 0) {
@@ -53,13 +53,14 @@ export class TitleScene implements Scene {
         } else if (this.menuIndex === 1) {
           this.startGame(ctx, 3);
         } else if (this.menuIndex === 2) {
-          this.start2Player(ctx);
+          this.start2Player(ctx, 0);
         } else if (this.menuIndex === 3) {
-          this.showSettings = true;
+          this.start2Player(ctx, 2);
         } else if (this.menuIndex === 4) {
-          ctx.pushScene(new PreferencesScene());
+          this.showSettings = true;
         } else if (this.menuIndex === 5) {
-          // Generate levels first so debug scene has data
+          ctx.pushScene(new PreferencesScene());
+        } else if (this.menuIndex === 6) {
           const seed = settings.randomSeed || Math.floor(Math.random() * 2147483647);
           setLevels(generateLevels(seed));
           ctx.pushScene(new LevelDebugScene());
@@ -132,11 +133,10 @@ export class TitleScene implements Scene {
     (settings as any)[def.key] = next;
   }
 
-  private start2Player(ctx: SceneContext) {
-    // Create fresh session or reuse existing one from context
+  private start2Player(ctx: SceneContext, botCount = 2) {
     const session = ctx.multiplayer ?? new MultiplayerSession();
     const canvas = ctx.renderer.ctx.canvas as HTMLCanvasElement;
-    ctx.replaceScene(new LobbyScene(session, canvas));
+    ctx.replaceScene(new LobbyScene(session, canvas, botCount));
   }
 
   private startGame(ctx: SceneContext, botCount = 0) {
@@ -191,7 +191,7 @@ export class TitleScene implements Scene {
     renderer.drawText('SHIFT or S  -  Shield / Tractor Beam', cx, y0 + 84, Colors.hud, 12, 'center');
 
     // Menu options
-    const menuItems = ['1 PLAYER', 'VS 3 BOTS', '2P + 2 BOTS', 'SETTINGS', 'PREFERENCES', 'LEVEL DEBUG'];
+    const menuItems = ['1 PLAYER', 'VS 3 BOTS', '2P ONLY', '2P + 2 BOTS', 'SETTINGS', 'PREFERENCES', 'LEVEL DEBUG'];
     const menuY = cy + 150;
     for (let i = 0; i < menuItems.length; i++) {
       const selected = i === this.menuIndex;

@@ -36,7 +36,7 @@ if (joinMatch) {
   const hostPeerId = joinMatch[1];
   // Clean URL
   history.replaceState(null, '', window.location.pathname);
-  scenes.push(new LobbyScene(session, canvas, hostPeerId));
+  scenes.push(new LobbyScene(session, canvas, 2, hostPeerId));
 } else {
   scenes.push(new TitleScene());
 }

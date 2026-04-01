@@ -13,15 +13,17 @@ export class LobbyScene implements Scene {
   private session: MultiplayerSession;
   private canvas: HTMLCanvasElement;
   private hostPeerId: string;
+  private botCount: number;
   private joinUrl = '';
   private status = 'INITIALIZING...';
   private error = '';
   private blinkTimer = 0;
   private copied = false;
 
-  constructor(session: MultiplayerSession, canvas: HTMLCanvasElement, hostPeerId = '') {
+  constructor(session: MultiplayerSession, canvas: HTMLCanvasElement, botCount = 2, hostPeerId = '') {
     this.session = session;
     this.canvas = canvas;
+    this.botCount = botCount;
     this.hostPeerId = hostPeerId;
   }
 
@@ -113,10 +115,10 @@ export class LobbyScene implements Scene {
     ctx.state.planetsCleared = new Array(12).fill(false);
     ctx.state.reactorClears = 0;
 
-    // Set up rivals: 1 human + 2 bots = 3 rivals
+    // Set up rivals: 1 human + N bots
     const rm = new RivalsManager();
-    rm.init(2); // 2 bots
-    rm.addHumanRival(); // human opponent
+    if (this.botCount > 0) rm.init(this.botCount);
+    rm.addHumanRival();
     ctx.rivals = rm;
 
     ctx.replaceScene(new SolarSystemScene());
