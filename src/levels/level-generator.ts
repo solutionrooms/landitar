@@ -89,6 +89,46 @@ function segmentsIntersect(a1: Pt, a2: Pt, b1: Pt, b2: Pt): boolean {
   return t > 0.01 && t < 0.99 && u > 0.01 && u < 0.99;
 }
 
+/** Remove self-intersections by smoothing offending vertices toward their neighbors.
+ *  Iterates until no intersections remain or max iterations reached. */
+function resolveIntersections(pts: Pt[], closed: boolean): void {
+  const maxIter = 20;
+  const n = pts.length;
+
+  for (let iter = 0; iter < maxIter; iter++) {
+    let found = false;
+    const segCount = closed ? n : n - 1;
+
+    for (let i = 0; i < segCount && !found; i++) {
+      const a1 = pts[i], a2 = pts[(i + 1) % n];
+      for (let j = i + 2; j < segCount; j++) {
+        if (closed && j === segCount - 1 && i === 0) continue;
+        if (!closed && j === segCount - 1 && i === 0) continue;
+        const b1 = pts[j], b2 = pts[(j + 1) % n];
+
+        if (segmentsIntersect(a1, a2, b1, b2)) {
+          // Smooth both crossing vertices toward their neighbors
+          const jPrev = pts[(j - 1 + n) % n];
+          const jNext = pts[(j + 1) % n];
+          pts[j] = { x: rn((jPrev.x + jNext.x) / 2), y: rn((jPrev.y + jNext.y) / 2) };
+
+          const iPt = (i + 1) % n;
+          if (iPt > 0 && iPt < n - 1) {
+            const iPrev = pts[iPt - 1];
+            const iNext = pts[iPt + 1];
+            pts[iPt] = { x: rn((iPrev.x + iNext.x) / 2), y: rn((iPrev.y + iNext.y) / 2) };
+          }
+
+          found = true;
+          break;
+        }
+      }
+    }
+
+    if (!found) break; // Clean — no intersections
+  }
+}
+
 /* ================================================================
    CAVE SHAPE GENERATORS
    Each returns a polyline (open, first point = top-left opening edge,
@@ -1194,39 +1234,14 @@ function generateAndValidateLevel(
   rng: Rng, name: string, style: LevelStyle, difficulty: number,
   log: GenerationLog,
 ): LevelData {
-  // Only regenerate for self-intersecting terrain (unfixable)
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const level = buildLevel(rng, name, style, difficulty);
+  const level = buildLevel(rng, name, style, difficulty);
 
-    if (!hasSelfIntersection(level.terrain, level.closed)) {
-      // Fix up any remaining issues in-place
-      const fixups = fixupLevel(level);
-      if (fixups.length > 0) {
-        log.fixups.push({ name, removed: fixups });
-      }
-      return level;
-    }
-
-    // Log the rejected attempt with its terrain for debug viewing
-    log.rejected.push({
-      name, style, attempt: attempt + 1,
-      reason: 'self-intersection',
-      terrain: [...level.terrain],
-      closed: level.closed,
-      turrets: [...level.turrets],
-      fuelDepots: [...level.fuelDepots],
-      islands: level.islands?.map(is => [...is]),
-    });
-
-    if (attempt >= MAX_RETRIES) {
-      const fallback = buildLevel(rng, name, 'wide-bowl', difficulty);
-      fallback.name = `${name} [!]`;
-      const fixups = fixupLevel(fallback);
-      if (fixups.length > 0) log.fixups.push({ name, removed: fixups });
-      return fallback;
-    }
+  // Fix up remaining issues (turrets outside, pad position, etc.)
+  const fixups = fixupLevel(level);
+  if (fixups.length > 0) {
+    log.fixups.push({ name, removed: fixups });
   }
-  return buildLevel(rng, name, 'wide-bowl', difficulty);
+  return level;
 }
 
 /** Fix issues in-place. Returns list of what was fixed. */
@@ -1272,6 +1287,12 @@ function buildLevel(rng: Rng, name: string, style: LevelStyle, difficulty: numbe
   const result = generateTerrainForStyle(rng, style, difficulty);
   const terrain = result.terrain;
   const islands = result.islands;
+
+  // Resolve any self-intersections by smoothing offending vertices
+  resolveIntersections(terrain, closed);
+  if (islands) {
+    for (const island of islands) resolveIntersections(island, true);
+  }
 
   const bounds = terrainBounds(terrain);
   const terrainWidth = bounds.maxX - bounds.minX;
