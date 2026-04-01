@@ -234,55 +234,64 @@ function genDeepShaft(rng: Rng, difficulty: number): Pt[] {
 
 /* --- 3. Terraced / Stepped --- */
 function genTerraced(rng: Rng, difficulty: number): Pt[] {
-  const halfW = rn(250 + (1 - difficulty) * 50 + rng.range(-20, 20));
-  const openHalf = rn(Math.max(50, 90 - difficulty * 25 + rng.range(-8, 8)));
-  const depth = rn(350 + difficulty * 100 + rng.range(-20, 20));
+  const halfW = rn(280 + (1 - difficulty) * 50 + rng.range(-20, 20));
+  const openHalf = rn(Math.max(55, 90 - difficulty * 25 + rng.range(-8, 8)));
+  const depth = rn(320 + difficulty * 80 + rng.range(-20, 20));
   const botY = TOP_Y - depth;
-  const numSteps = 4 + rng.int(0, 2);
-  const stepH = depth / numSteps;
+  const numSteps = 3 + rng.int(0, 2);
+  const stepH = depth / (numSteps + 1);
   const pts: Pt[] = [];
 
-  // Start at top-left opening
+  // The key: trace ONE continuous path down the left wall with right-jutting
+  // ledges, across the bottom, then up the right wall. Ledges only extend
+  // to 40% of width so they NEVER overlap with the opposite wall.
+
+  const maxInset = halfW * 0.35; // ledges never past 35% of width
+
+  // Left wall going down with ledges
   pts.push({ x: rn(-openHalf), y: TOP_Y });
+  let curY = TOP_Y;
 
-  // Alternating ledges from left and right
   for (let s = 0; s < numSteps; s++) {
-    const y1 = TOP_Y - s * stepH;
-    const y2 = TOP_Y - (s + 1) * stepH;
-    const yMid = (y1 + y2) / 2;
-    const inset = rn(halfW * (0.3 + rng.range(0, 0.2)));
+    const ledgeY = TOP_Y - (s + 1) * stepH;
+    const ledgeInset = rn(maxInset * (0.5 + rng.range(0, 0.5)));
 
-    if (s % 2 === 0) {
-      // Ledge from left wall
-      pts.push({ x: rn(-halfW + rng.range(-5, 5)), y: rn(yMid + rng.range(-5, 5)) });
-      pts.push({ x: rn(-halfW + inset + rng.range(-8, 8)), y: rn(yMid - 5 + rng.range(-5, 5)) });
-      pts.push({ x: rn(-halfW + inset + rng.range(-8, 8)), y: rn(y2 + rng.range(-5, 5)) });
-    } else {
-      // Ledge from right wall
-      pts.push({ x: rn(halfW - inset + rng.range(-8, 8)), y: rn(yMid + rng.range(-5, 5)) });
-      pts.push({ x: rn(halfW + rng.range(-5, 5)), y: rn(yMid - 5 + rng.range(-5, 5)) });
-      pts.push({ x: rn(halfW + rng.range(-5, 5)), y: rn(y2 + rng.range(-5, 5)) });
-    }
+    // Drop down the left wall
+    pts.push({ x: rn(-halfW + rng.range(-3, 3)), y: rn(lerp(curY, ledgeY, 0.5) + rng.range(-5, 5)) });
+    pts.push({ x: rn(-halfW + rng.range(-3, 3)), y: rn(ledgeY + rng.range(-3, 3)) });
+
+    // Ledge jutting right (stays on left half)
+    pts.push({ x: rn(-halfW + ledgeInset), y: rn(ledgeY + rng.range(-3, 3)) });
+
+    // Drop from ledge
+    const dropY = ledgeY - stepH * 0.3;
+    pts.push({ x: rn(-halfW + ledgeInset), y: rn(dropY + rng.range(-3, 3)) });
+    pts.push({ x: rn(-halfW + rng.range(-3, 5)), y: rn(dropY + rng.range(-3, 3)) });
+
+    curY = dropY;
   }
 
-  // Bottom floor
-  const botN = 4 + rng.int(0, 3);
-  for (let i = 0; i < botN; i++) {
-    const t = i / Math.max(1, botN - 1);
+  // Reach bottom-left
+  pts.push({ x: rn(-halfW + rng.range(-3, 3)), y: rn(botY + rng.range(0, 8)) });
+
+  // Bottom floor — simple flat-ish
+  const botN = 5 + rng.int(0, 3);
+  for (let i = 1; i < botN; i++) {
+    const t = i / botN;
     pts.push({
-      x: rn(lerp(-halfW * 0.6, halfW * 0.6, t) + rng.range(-8, 8)),
-      y: rn(botY + rng.range(-5, 10)),
+      x: rn(lerp(-halfW, halfW, t) + rng.range(-5, 5)),
+      y: rn(botY + rng.range(0, 10)),
     });
   }
 
-  // Climb back up the other side to opening
-  // Go from bottom-right area to top-right opening
-  const returnSteps = 3 + rng.int(0, 2);
-  for (let s = 0; s < returnSteps; s++) {
-    const t = (s + 1) / (returnSteps + 1);
+  // Right wall going up (smooth, no ledges — keeps it simple and safe)
+  pts.push({ x: rn(halfW + rng.range(-3, 3)), y: rn(botY + rng.range(0, 5)) });
+  const rightN = 5 + rng.int(0, 2);
+  for (let i = 1; i < rightN; i++) {
+    const t = i / rightN;
     pts.push({
-      x: rn(lerp(halfW * 0.4, halfW, t) + rng.range(-10, 10)),
-      y: rn(lerp(botY, TOP_Y, t) + rng.range(-10, 10)),
+      x: rn(lerp(halfW, openHalf, smoothstep(t)) + rng.range(-5, 5)),
+      y: rn(lerp(botY, TOP_Y, t) + rng.range(-5, 5)),
     });
   }
 
