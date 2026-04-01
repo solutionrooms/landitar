@@ -197,7 +197,7 @@ export class TitleScene implements Scene {
     // High scores
     const scores = getHighScores();
     if (scores.length > 0) {
-      const hsY = cy + 240;
+      const hsY = menuY + menuItems.length * 28 + 12;
       renderer.drawText('HIGH SCORES', cx, hsY, Colors.text, 14, 'center');
       for (let i = 0; i < Math.min(5, scores.length); i++) {
         const e = scores[i];
