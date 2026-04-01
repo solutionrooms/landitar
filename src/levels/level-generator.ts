@@ -1061,71 +1061,165 @@ export function generateLevels(seed: number): LevelData[] {
   return NAMES.map((name, i) => {
     const difficulty = i / 11;
     const style = styles[i];
-    const closed = isTunnelStyle(style);
+    const level = generateAndValidateLevel(rng, name, style, difficulty);
+    return level;
+  });
+}
 
-    let result = generateTerrainForStyle(rng, style, difficulty);
+const MAX_RETRIES = 5;
 
-    // Safety: if terrain self-intersects, fall back to a safe wide-bowl
-    if (hasSelfIntersection(result.terrain, closed)) {
-      result = { terrain: genWideBowl(rng, difficulty) };
-    }
+interface ValidationIssue { rule: string; detail: string }
 
-    const terrain = result.terrain;
-    const islands = result.islands;
+function validateLevel(level: LevelData): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const { terrain, closed, turrets, fuelDepots, spawnX, spawnY } = level;
 
-    const bounds = terrainBounds(terrain);
-    const terrainWidth = bounds.maxX - bounds.minX;
+  // 1. Self-intersection check
+  if (hasSelfIntersection(terrain, closed)) {
+    issues.push({ rule: 'self-intersection', detail: 'Terrain polyline crosses itself' });
+  }
 
-    // Width override: 15% wider than terrain extent for spike wall margin
-    const width = closed ? undefined : rn(terrainWidth * 1.15);
+  // 2. Minimum playable area (bounding box check)
+  const bounds = terrainBounds(terrain);
+  const w = bounds.maxX - bounds.minX;
+  const h = bounds.maxY - bounds.minY;
+  if (w < 100 || h < 80) {
+    issues.push({ rule: 'too-small', detail: `Area ${rn(w)}x${rn(h)} too small` });
+  }
 
-    // Spawn position
-    const spawnX = 0;
-    const spawnY = closed ? 200 : 310;
+  // 3. Spawn point must be accessible
+  if (closed && !pointInPolygon(spawnX, spawnY, terrain)) {
+    issues.push({ rule: 'spawn-outside', detail: 'Spawn point is outside the polygon' });
+  }
 
-    // Gravity ramps with difficulty
-    const gravity = rn(42 + difficulty * 22 + rng.range(-3, 3));
-
-    // Turret count ramps with difficulty
-    const turretCount = rn(3 + difficulty * 6 + rng.range(0, 1));
-
-    // Fuel depots decrease with difficulty
-    const depotCount = Math.max(1, rn(4 - difficulty * 2 + rng.range(-0.5, 0.5)));
-
-    // Place turrets on main terrain
-    const turrets = placeTurrets(rng, terrain, turretCount, closed, spawnX, spawnY);
-
-    // Place some turrets on island surfaces too
-    if (islands) {
-      for (const island of islands) {
-        // Compute island centroid for outward normals
-        let icx = 0, icy = 0;
-        for (const p of island) { icx += p.x; icy += p.y; }
-        icx /= island.length; icy /= island.length;
-        const islandTurrets = placeTurrets(rng, island, 1 + rng.int(0, 1), true, icx, icy);
-        // Flip turrets to face outward (away from island center, toward player)
-        for (const t of islandTurrets) {
-          t.angle += Math.PI; // face outward
-        }
-        turrets.push(...islandTurrets);
+  // 4. Landing pad must be inside and accessible (for closed levels)
+  if (closed && level.padX !== undefined) {
+    // Check pad position and clearance above
+    const padY = getMinYAtX(terrain, level.padX);
+    if (padY !== null) {
+      if (!pointInPolygon(level.padX, padY + 10, terrain)) {
+        issues.push({ rule: 'pad-outside', detail: 'Landing pad is outside the polygon' });
+      }
+      if (!pointInPolygon(level.padX, padY + 50, terrain)) {
+        issues.push({ rule: 'pad-no-clearance', detail: 'No vertical clearance above landing pad' });
       }
     }
+  }
 
-    const fuelDepots = placeDepots(rng, terrain, depotCount, turrets, closed, spawnX, spawnY);
-    const padX = findPadX(terrain, closed);
+  // 5. Must have at least 1 turret
+  if (turrets.length === 0) {
+    issues.push({ rule: 'no-turrets', detail: 'No turrets could be placed' });
+  }
 
-    return {
-      name,
-      terrain,
-      closed,
-      gravity,
-      spawnX,
-      spawnY,
-      turrets,
-      fuelDepots,
-      padX,
-      width,
-      islands,
-    };
-  });
+  // 6. All turrets must be accessible (inside polygon for closed levels)
+  if (closed) {
+    const outsideTurrets = turrets.filter(t => !pointInPolygon(t.x, t.y, terrain));
+    if (outsideTurrets.length > 0) {
+      issues.push({ rule: 'turrets-outside', detail: `${outsideTurrets.length} turrets outside polygon` });
+    }
+  }
+
+  // 7. All depots must be accessible
+  if (closed) {
+    const outsideDepots = fuelDepots.filter(d => !pointInPolygon(d.x, d.y, terrain));
+    if (outsideDepots.length > 0) {
+      issues.push({ rule: 'depots-outside', detail: `${outsideDepots.length} depots outside polygon` });
+    }
+  }
+
+  // 8. For open caves, ensure enough width at opening for ship entry
+  if (!closed) {
+    const openingPts = terrain.filter(p => p.y > bounds.maxY - 20);
+    if (openingPts.length >= 2) {
+      const xs = openingPts.map(p => p.x);
+      const openingWidth = Math.max(...xs) - Math.min(...xs);
+      if (openingWidth < 40) {
+        issues.push({ rule: 'opening-too-narrow', detail: `Opening width ${rn(openingWidth)}px` });
+      }
+    }
+  }
+
+  return issues;
+}
+
+/** Interpolate minimum Y at x across all terrain segments */
+function getMinYAtX(terrain: Pt[], x: number): number | null {
+  let minY: number | null = null;
+  for (let i = 0; i < terrain.length; i++) {
+    const a = terrain[i], b = terrain[(i + 1) % terrain.length];
+    if ((a.x <= x && x <= b.x) || (b.x <= x && x <= a.x)) {
+      const dx = b.x - a.x;
+      if (Math.abs(dx) < 0.01) continue;
+      const t = (x - a.x) / dx;
+      const y = a.y + t * (b.y - a.y);
+      if (minY === null || y < minY) minY = y;
+    }
+  }
+  return minY;
+}
+
+function generateAndValidateLevel(
+  rng: Rng, name: string, style: LevelStyle, difficulty: number,
+): LevelData {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const level = buildLevel(rng, name, style, difficulty);
+    const issues = validateLevel(level);
+
+    if (issues.length === 0) return level;
+
+    // Log issues for debugging
+    if (attempt < MAX_RETRIES) {
+      console.warn(`[Level ${name}] attempt ${attempt + 1} failed (${style}):`,
+        issues.map(i => i.rule).join(', '), '— retrying');
+      // Retry with the same style but RNG has advanced, so we get different terrain
+    } else {
+      // Final attempt failed — fallback to wide-bowl and mark issues
+      console.error(`[Level ${name}] FAILED after ${MAX_RETRIES + 1} attempts:`,
+        issues.map(i => `${i.rule}: ${i.detail}`).join('; '));
+      const fallback = buildLevel(rng, name, 'wide-bowl', difficulty);
+      // Tag the level name so it's visible in-game
+      fallback.name = `${name} [!]`;
+      return fallback;
+    }
+  }
+  // Unreachable, but TypeScript needs it
+  return buildLevel(rng, name, 'wide-bowl', difficulty);
+}
+
+function buildLevel(rng: Rng, name: string, style: LevelStyle, difficulty: number): LevelData {
+  const closed = isTunnelStyle(style);
+  const result = generateTerrainForStyle(rng, style, difficulty);
+  const terrain = result.terrain;
+  const islands = result.islands;
+
+  const bounds = terrainBounds(terrain);
+  const terrainWidth = bounds.maxX - bounds.minX;
+  const width = closed ? undefined : rn(terrainWidth * 1.15);
+
+  const spawnX = 0;
+  const spawnY = closed ? 200 : 310;
+  const gravity = rn(42 + difficulty * 22 + rng.range(-3, 3));
+  const turretCount = rn(3 + difficulty * 6 + rng.range(0, 1));
+  const depotCount = Math.max(1, rn(4 - difficulty * 2 + rng.range(-0.5, 0.5)));
+
+  const turrets = placeTurrets(rng, terrain, turretCount, closed, spawnX, spawnY);
+
+  if (islands) {
+    for (const island of islands) {
+      let icx = 0, icy = 0;
+      for (const p of island) { icx += p.x; icy += p.y; }
+      icx /= island.length; icy /= island.length;
+      const islandTurrets = placeTurrets(rng, island, 1 + rng.int(0, 1), true, icx, icy);
+      for (const t of islandTurrets) { t.angle += Math.PI; }
+      turrets.push(...islandTurrets);
+    }
+  }
+
+  const fuelDepots = placeDepots(rng, terrain, depotCount, turrets, closed, spawnX, spawnY);
+  const padX = findPadX(terrain, closed);
+
+  return {
+    name, terrain, closed, gravity, spawnX, spawnY,
+    turrets, fuelDepots, padX, width, islands,
+  };
 }
