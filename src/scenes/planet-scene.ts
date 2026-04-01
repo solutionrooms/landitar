@@ -1,20 +1,51 @@
 import { type Scene, type SceneContext } from './scene.js';
 import { type Renderer } from '../render/renderer.js';
-import { Ship, type Bullet } from '../entities/ship.js';
+import { type Segment } from '../math/collision.js';
+import { Ship } from '../entities/ship.js';
 import { Turret } from '../entities/turret.js';
 import { FuelDepot } from '../entities/fuel-depot.js';
 import { Explosion } from '../entities/explosion.js';
+import { LandingPad } from '../entities/landing-pad.js';
 import { Terrain } from '../levels/terrain.js';
 import { LEVELS } from '../levels/level-data.js';
-import { type Planet } from '../entities/planet.js';
-import { circleVsSegments, type Segment } from '../math/collision.js';
+import { type Planet, type PlanetSavedState } from '../entities/planet.js';
+import { circleVsSegments, circleVsSegmentsInfo } from '../math/collision.js';
 import { renderHud } from '../render/hud.js';
 import { Colors } from '../render/colors.js';
 import { GameOverScene } from './game-over-scene.js';
 import { settings } from '../core/settings.js';
+import { playPickupSound, playExplosionSound, playDeathSound, playLevelCompleteSound } from '../core/audio.js';
+import { renderRivalsOverlay } from '../render/opponent-overlay.js';
+import { type RivalsManager } from '../entities/rivals.js';
 
-const EXIT_Y = 280;        // Y threshold to exit planet
-const TRACTOR_RANGE = 35;  // range for tractor beam pickup
+const EXIT_Y = 450;
+const NEAR_ENTITY_RADIUS = 15;
+const SPIKE_SIZE = 18;
+const SPIKE_SPACING = 25;
+
+function generateSpikes(
+  x1: number, y1: number, x2: number, y2: number,
+  perpX: number, perpY: number,
+): Segment[] {
+  const len = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+  const count = Math.max(1, Math.round(len / SPIKE_SPACING));
+  const dx = (x2 - x1) / count;
+  const dy = (y2 - y1) / count;
+  const segs: Segment[] = [];
+  for (let i = 0; i < count; i++) {
+    const ax = x1 + dx * i;
+    const ay = y1 + dy * i;
+    const tx = ax + dx * 0.5 + perpX * SPIKE_SIZE;
+    const ty = ay + dy * 0.5 + perpY * SPIKE_SIZE;
+    const bx = x1 + dx * (i + 1);
+    const by = y1 + dy * (i + 1);
+    segs.push({ x1: ax, y1: ay, x2: tx, y2: ty });
+    segs.push({ x1: tx, y1: ty, x2: bx, y2: by });
+  }
+  return segs;
+}
+
+type LandPhase = 'none' | 'waiting' | 'planting' | 'departing';
 
 export class PlanetScene implements Scene {
   private ship!: Ship;
@@ -22,11 +53,19 @@ export class PlanetScene implements Scene {
   private turrets: Turret[] = [];
   private fuelDepots: FuelDepot[] = [];
   private explosions: Explosion[] = [];
+  private landingPad!: LandingPad;
   private gravity = 50;
   private ctx!: SceneContext;
   private levelIndex: number;
   private planet: Planet | null;
   private levelName = '';
+  private cleared = false;
+  private clearBonusGiven = false;
+  private landPhase: LandPhase = 'none';
+  private landPhaseTimer = 0;
+  private minX = -Infinity;
+  private maxX = Infinity;
+  private bottomY = -Infinity;
 
   constructor(levelIndex: number, planet: Planet | null = null) {
     this.levelIndex = levelIndex;
@@ -41,15 +80,113 @@ export class PlanetScene implements Scene {
     this.terrain = new Terrain(level.terrain, level.closed);
     this.gravity = level.gravity;
 
+    // Compute bounds
+    const xs = level.terrain.map(p => p.x);
+    const ys = level.terrain.map(p => p.y);
+    if (level.width) {
+      this.minX = -level.width / 2;
+      this.maxX = level.width / 2;
+    } else {
+      this.minX = Math.min(...xs);
+      this.maxX = Math.max(...xs);
+    }
+    this.bottomY = Math.min(...ys) - 60;
+
+    // Add spike walls for open levels
+    if (!level.closed) {
+      // Left spike wall (spikes point right)
+      this.terrain.segments.push(
+        ...generateSpikes(this.minX, EXIT_Y, this.minX, this.bottomY, 1, 0),
+      );
+      // Right spike wall (spikes point left)
+      this.terrain.segments.push(
+        ...generateSpikes(this.maxX, EXIT_Y, this.maxX, this.bottomY, -1, 0),
+      );
+      // Bottom spike wall (spikes point up)
+      this.terrain.segments.push(
+        ...generateSpikes(this.minX, this.bottomY, this.maxX, this.bottomY, 0, 1),
+      );
+    }
+
     this.ship = new Ship(level.spawnX, level.spawnY);
-    this.ship.angle = Math.PI / 2; // pointing up
+    this.ship.angle = Math.PI / 2;
 
     this.turrets = level.turrets.map(def => new Turret(def));
     this.fuelDepots = level.fuelDepots.map(def => new FuelDepot(def));
     this.explosions = [];
+    this.cleared = false;
+    this.clearBonusGiven = false;
+    this.landPhase = 'none';
+    this.landPhaseTimer = 0;
+
+    // Create landing pad - use level's padX or pick a random flat-ish spot
+    const padX = level.padX ?? this.pickPadX(level.terrain);
+    const groundY = this.terrain.getYAtX(padX) ?? -50;
+    this.landingPad = new LandingPad(padX, groundY);
+
+    // Restore saved state if returning to this planet
+    if (this.planet?.savedState) {
+      const saved = this.planet.savedState;
+      this.cleared = saved.cleared;
+      for (let i = 0; i < this.turrets.length && i < saved.turretsAlive.length; i++) {
+        this.turrets[i].alive = saved.turretsAlive[i];
+      }
+      for (let i = 0; i < this.fuelDepots.length && i < saved.depotsAlive.length; i++) {
+        if (!saved.depotsAlive[i]) this.fuelDepots[i].alive = false;
+      }
+    }
+
+    // Spawn rival bots on this planet
+    if (ctx.rivals) {
+      ctx.rivals.spawnBotsOnPlanet(this.levelName, level.spawnX, level.spawnY);
+    }
   }
 
-  exit() {}
+  private pickPadX(terrainPts: { x: number; y: number }[]): number {
+    let bestX = 0;
+    let bestSlope = Infinity;
+    for (let i = 1; i < terrainPts.length - 2; i++) {
+      const p = terrainPts[i];
+      const q = terrainPts[i + 1];
+      const slope = Math.abs((q.y - p.y) / (q.x - p.x + 0.01));
+      if (slope < bestSlope) {
+        bestSlope = slope;
+        bestX = (p.x + q.x) / 2;
+      }
+    }
+    return bestX;
+  }
+
+  exit() {
+    // Save level state so player can resume later
+    if (this.planet && !this.planet.cleared && !this.planet.explosivesPlanted) {
+      this.planet.savedState = {
+        turretsAlive: this.turrets.map(t => t.alive),
+        depotsAlive: this.fuelDepots.map(d => d.alive),
+        cleared: this.cleared,
+      };
+    }
+    // Despawn bot ships
+    if (this.ctx.rivals) {
+      this.ctx.rivals.despawnBots();
+    }
+  }
+
+  private isNearSurfaceEntity(x: number, y: number): boolean {
+    for (const t of this.turrets) {
+      if (t.alive) {
+        const dx = t.pos.x - x, dy = t.pos.y - y;
+        if (dx * dx + dy * dy < NEAR_ENTITY_RADIUS * NEAR_ENTITY_RADIUS) return true;
+      }
+    }
+    for (const d of this.fuelDepots) {
+      if (d.alive && !d.grabbed) {
+        const dx = d.pos.x - x, dy = d.pos.y - y;
+        if (dx * dx + dy * dy < NEAR_ENTITY_RADIUS * NEAR_ENTITY_RADIUS) return true;
+      }
+    }
+    return false;
+  }
 
   update(dt: number, ctx: SceneContext) {
     const { input, state } = ctx;
@@ -59,7 +196,12 @@ export class PlanetScene implements Scene {
       return;
     }
 
-    // Update ship
+    // Landing sequence state machine
+    if (this.landPhase !== 'none') {
+      this.updateLandPhase(dt, ctx);
+      return;
+    }
+
     if (this.ship.alive) {
       // Apply gravity
       this.ship.vel.y -= this.gravity * settings.planetGravity * dt;
@@ -67,24 +209,74 @@ export class PlanetScene implements Scene {
       const fuelUsed = this.ship.update(dt, input, state.fuel);
       state.fuel = Math.max(0, state.fuel - fuelUsed);
 
-      // Exit planet (fly up past threshold)
-      if (this.ship.pos.y > EXIT_Y) {
+      // Clamp ship within bounds
+      if (this.ship.pos.x < this.minX) { this.ship.pos.x = this.minX; this.ship.vel.x = 0; }
+      if (this.ship.pos.x > this.maxX) { this.ship.pos.x = this.maxX; this.ship.vel.x = 0; }
+
+      // Exit planet (must be flying upward past threshold)
+      if (this.ship.pos.y > EXIT_Y && this.ship.vel.y > 0) {
         ctx.popScene();
         return;
       }
 
-      // Terrain collision
-      if (!this.ship.shielded && circleVsSegments(this.ship.pos.x, this.ship.pos.y, this.ship.radius, this.terrain.segments)) {
-        this.killShip(ctx);
+      // Landing pad check
+      const landResult = this.landingPad.checkLanding(
+        this.ship.pos.x, this.ship.pos.y, this.ship.vel.y, this.ship.angle, this.ship.radius
+      );
+      if (landResult === 'landed') {
+        this.landPhase = 'waiting';
+        this.ship.vel.set(0, 0);
+        this.ship.thrusting = false;
+        state.score += 2000;
+        playLevelCompleteSound();
+      } else if (landResult === 'crashed') {
+        if (this.ship.shielded) {
+          // Bounce off pad surface (normal points up)
+          this.ship.vel.y = Math.abs(this.ship.vel.y) * 0.6;
+          this.ship.vel.x *= 0.6;
+          this.ship.pos.y = this.landingPad.top + this.ship.radius + 1;
+        } else {
+          this.killShip(ctx);
+        }
+      }
+
+      // Terrain collision (ship)
+      if (this.ship.alive) {
+        const hit = circleVsSegmentsInfo(this.ship.pos.x, this.ship.pos.y, this.ship.radius, this.terrain.segments);
+        if (hit) {
+          if (this.ship.shielded) {
+            // Bounce off: reflect velocity across surface normal
+            const vDotN = this.ship.vel.x * hit.normalX + this.ship.vel.y * hit.normalY;
+            if (vDotN < 0) {
+              this.ship.vel.x -= 2 * vDotN * hit.normalX;
+              this.ship.vel.y -= 2 * vDotN * hit.normalY;
+              this.ship.vel.scaleMut(0.6); // energy loss
+            }
+            // Push out of penetration
+            this.ship.pos.x += hit.normalX * (hit.depth + 1);
+            this.ship.pos.y += hit.normalY * (hit.depth + 1);
+          } else {
+            this.killShip(ctx);
+          }
+        }
       }
 
       // Turret bullet collision with ship
-      if (!this.ship.shielded) {
+      if (this.ship.alive) {
         for (const turret of this.turrets) {
           for (const b of turret.bullets) {
             if (b.pos.distanceTo(this.ship.pos) < this.ship.radius + 3) {
-              this.killShip(ctx);
-              break;
+              if (this.ship.shielded) {
+                // Absorb hit: push ship away and spin it
+                const pushScale = 0.3;
+                this.ship.vel.x += b.vel.x * pushScale;
+                this.ship.vel.y += b.vel.y * pushScale;
+                this.ship.angle += (Math.random() - 0.5) * 0.8;
+                b.life = 0;
+              } else {
+                this.killShip(ctx);
+                break;
+              }
             }
           }
           if (!this.ship.alive) break;
@@ -100,42 +292,39 @@ export class PlanetScene implements Scene {
             bullet.life = 0;
             state.score += turret.scoreValue;
             this.explosions.push(new Explosion(turret.pos.x, turret.pos.y));
+            playExplosionSound();
           }
         }
 
-        // Bullet vs terrain
-        if (circleVsSegments(bullet.pos.x, bullet.pos.y, 2, this.terrain.segments)) {
-          bullet.life = 0;
+        // Bullet vs terrain - skip if near a surface entity
+        if (!this.isNearSurfaceEntity(bullet.pos.x, bullet.pos.y)) {
+          if (circleVsSegments(bullet.pos.x, bullet.pos.y, 2, this.terrain.segments)) {
+            bullet.life = 0;
+          }
         }
       }
 
-      // Tractor beam / fuel pickup
+      // Tractor beam - initiate grab
       if (input.shield) {
         for (const depot of this.fuelDepots) {
-          if (!depot.alive) continue;
-          if (this.ship.pos.distanceTo(depot.pos) < TRACTOR_RANGE) {
-            depot.alive = false;
-            state.fuel = Math.min(state.maxFuel, state.fuel + depot.fuelAmount);
+          if (!depot.alive || depot.grabbed) continue;
+          if (this.ship.pos.distanceTo(depot.pos) < settings.tractorRange) {
+            depot.grabbed = true;
           }
         }
       }
 
       // Check if all turrets destroyed
-      const allDestroyed = this.turrets.every(t => !t.alive);
-      if (allDestroyed && this.turrets.length > 0) {
-        // Planet cleared!
-        state.score += 1000;
-        if (this.planet) {
-          this.planet.cleared = true;
-          state.planetsCleared[this.planet.def.id] = true;
+      if (!this.cleared && this.turrets.length > 0 && this.turrets.every(t => !t.alive)) {
+        this.cleared = true;
+        if (!this.clearBonusGiven) {
+          this.clearBonusGiven = true;
+          state.score += 1000;
+          this.explosions.push(new Explosion(this.ship.pos.x, this.ship.pos.y - 50, 24));
+          playLevelCompleteSound();
         }
-        // Explosion animation then exit
-        this.explosions.push(new Explosion(this.ship.pos.x, this.ship.pos.y - 50, 24));
-        ctx.popScene();
-        return;
       }
     } else {
-      // Dead - wait for respawn
       if (this.ship.respawnTimer <= 0) {
         if (state.lives > 0) {
           const level = LEVELS[this.levelIndex % LEVELS.length];
@@ -150,17 +339,56 @@ export class PlanetScene implements Scene {
       }
     }
 
-    // Update turrets
-    for (const t of this.turrets) {
-      t.update(dt, this.ship.pos);
+    // Update grabbed depots
+    for (const depot of this.fuelDepots) {
+      if (!depot.alive || !depot.grabbed) continue;
+      if (depot.updateGrab(dt, this.ship.pos)) {
+        depot.alive = false;
+        state.fuel = Math.min(state.maxFuel, state.fuel + settings.fuelPickup);
+        playPickupSound();
+      }
     }
 
-    // Turret bullets vs terrain
+    // Update turrets
+    for (const t of this.turrets) {
+      t.update(dt, this.ship.pos, this.terrain.segments);
+    }
+
+    // Turret bullets vs terrain - skip if near a surface entity
     for (const turret of this.turrets) {
       for (const b of turret.bullets) {
-        if (circleVsSegments(b.pos.x, b.pos.y, 2, this.terrain.segments)) {
-          b.life = 0;
+        if (!this.isNearSurfaceEntity(b.pos.x, b.pos.y)) {
+          if (circleVsSegments(b.pos.x, b.pos.y, 2, this.terrain.segments)) {
+            b.life = 0;
+          }
         }
+      }
+    }
+
+    // Update rivals (bots + network)
+    if (ctx.rivals) {
+      ctx.rivals.updateBackground(dt, this.levelName);
+      ctx.rivals.updateActiveBots(
+        dt, this.gravity, this.terrain.segments,
+        this.turrets, this.explosions,
+        this.minX, this.maxX, EXIT_Y,
+      );
+      ctx.rivals.handlePipKeys(code => ctx.input.wasPressed(code));
+
+      // Network rival sync
+      if (ctx.multiplayer?.isMultiplayer) {
+        ctx.multiplayer.broadcastShipState(this.ship, this.levelName);
+        for (const r of ctx.rivals.rivals) {
+          if (r.isHuman) {
+            r.visual.applyState(ctx.multiplayer.remoteShip);
+            r.score = ctx.multiplayer.remote.score;
+          }
+        }
+      }
+
+      // Cross-player combat
+      if (ctx.rivals.checkCombat(this.ship, ctx.state, this.explosions, this.levelName)) {
+        this.killShip(ctx);
       }
     }
 
@@ -169,15 +397,66 @@ export class PlanetScene implements Scene {
     this.explosions = this.explosions.filter(e => !e.done);
   }
 
+  private updateLandPhase(dt: number, ctx: SceneContext) {
+    switch (this.landPhase) {
+      case 'waiting':
+        if (ctx.input.fire) {
+          this.landPhase = 'planting';
+          this.landPhaseTimer = 2.0;
+        } else if (ctx.input.thrust) {
+          // Take off without planting
+          this.landPhase = 'none';
+          this.ship.vel.set(0, 60);
+          this.ship.shielded = false;
+        }
+        break;
+
+      case 'planting':
+        this.landPhaseTimer -= dt;
+        if (this.landPhaseTimer <= 0) {
+          this.landPhase = 'departing';
+          if (this.planet) this.planet.explosivesPlanted = true;
+          this.ship.vel.set(0, 80);
+          this.ship.angle = Math.PI / 2;
+          playExplosionSound();
+        }
+        break;
+
+      case 'departing':
+        // Auto-takeoff: strong upward thrust overcoming gravity
+        this.ship.vel.y += 200 * dt;
+        this.ship.pos.addMut(this.ship.vel.scale(dt));
+        this.ship.thrusting = true;
+        if (this.ship.pos.y > EXIT_Y) {
+          ctx.popScene();
+          return;
+        }
+        break;
+    }
+
+    // Update explosions during landing phases
+    for (const e of this.explosions) e.update(dt);
+    this.explosions = this.explosions.filter(e => !e.done);
+
+    // Turrets keep firing during waiting/planting (but ship is shielded)
+    if (this.landPhase !== 'departing') {
+      for (const t of this.turrets) {
+        t.update(dt, this.ship.pos, this.terrain.segments);
+      }
+    }
+  }
+
   private killShip(ctx: SceneContext) {
+    if (!this.ship.alive) return;
     this.explosions.push(new Explosion(this.ship.pos.x, this.ship.pos.y));
     this.ship.kill();
     ctx.state.lives--;
+    playDeathSound();
   }
 
   render(renderer: Renderer, ctx: SceneContext) {
-    // Camera follows ship
-    if (this.ship.alive) {
+    const isLanding = this.landPhase !== 'none' && this.landPhase !== 'departing';
+    if (this.ship.alive && !isLanding) {
       renderer.camX += (this.ship.pos.x - renderer.camX) * 0.08;
       renderer.camY += (this.ship.pos.y - renderer.camY) * 0.08;
     }
@@ -188,6 +467,9 @@ export class PlanetScene implements Scene {
     // Terrain
     renderer.drawSegments(this.terrain.segments, Colors.terrain, 2);
 
+    // Landing pad
+    this.landingPad.render(renderer);
+
     // Fuel depots
     for (const f of this.fuelDepots) f.render(renderer);
 
@@ -195,20 +477,46 @@ export class PlanetScene implements Scene {
     for (const t of this.turrets) t.render(renderer);
 
     // Tractor beam line
-    if (this.ship.alive && this.ctx.input.shield) {
+    if (this.ship.alive && this.landPhase === 'none') {
       for (const depot of this.fuelDepots) {
         if (!depot.alive) continue;
-        if (this.ship.pos.distanceTo(depot.pos) < TRACTOR_RANGE * 1.5) {
-          renderer.drawLine(this.ship.pos.x, this.ship.pos.y, depot.pos.x, depot.pos.y, Colors.shield, 1);
+        if (depot.grabbed) {
+          renderer.drawLine(this.ship.pos.x, this.ship.pos.y, depot.pos.x, depot.pos.y, Colors.shield, 2);
+        } else if (this.ctx.input.shield) {
+          const dist = this.ship.pos.distanceTo(depot.pos);
+          if (dist < settings.tractorRange * 2) {
+            const inRange = dist < settings.tractorRange;
+            renderer.drawLine(
+              this.ship.pos.x, this.ship.pos.y,
+              depot.pos.x, depot.pos.y,
+              inRange ? Colors.shield : '#224444', inRange ? 2 : 1
+            );
+          }
         }
       }
     }
 
-    // Ship
+    // Exit zone haze
+    this.renderExitHaze(renderer);
+
+    // Ship (show shield during landing phases except departing)
+    if (isLanding) {
+      this.ship.shielded = true;
+    }
     this.ship.render(renderer);
+
+    // Render rival ships
+    if (ctx.rivals) {
+      ctx.rivals.renderOnScene(renderer, this.levelName);
+    }
 
     // Explosions
     for (const e of this.explosions) e.render(renderer);
+
+    // Landing warning
+    if (this.ship.alive && this.landPhase === 'none') {
+      this.renderLandingWarning(renderer);
+    }
 
     // HUD
     renderHud(renderer, ctx.state);
@@ -216,9 +524,95 @@ export class PlanetScene implements Scene {
     // Level name
     renderer.drawText(this.levelName, renderer.width / 2, renderer.height - 20, Colors.text, 14, 'center');
 
-    // Exit indicator
-    if (this.ship.alive && this.ship.pos.y > EXIT_Y - 80) {
+    // Status messages
+    if (this.landPhase === 'waiting') {
+      renderer.drawText('LANDED! SPACE: PLANT EXPLOSIVES  |  THRUST: TAKE OFF', renderer.width / 2, 60, Colors.star, 14, 'center');
+    } else if (this.landPhase === 'planting') {
+      const dots = '.'.repeat(Math.floor((2.0 - this.landPhaseTimer) * 3) % 4);
+      renderer.drawText('PLANTING EXPLOSIVES' + dots, renderer.width / 2, 60, '#FF4444', 16, 'center');
+    } else if (this.landPhase === 'departing') {
+      renderer.drawText('EXPLOSIVES PLANTED - GET CLEAR!', renderer.width / 2, 60, '#FF4444', 16, 'center');
+    } else if (this.cleared) {
+      renderer.drawText('ALL ENEMIES DESTROYED +1000', renderer.width / 2, 60, Colors.star, 14, 'center');
+    } else if (this.ship.alive && this.ship.pos.y > EXIT_Y - 100) {
       renderer.drawText('^ EXIT ^', renderer.width / 2, 60, Colors.text, 12, 'center');
     }
+
+    // Rivals overlay
+    if (ctx.rivals && ctx.rivals.rivals.length > 0) {
+      if (ctx.multiplayer?.isMultiplayer) {
+        ctx.multiplayer.maybeBroadcastState(ctx.state);
+      }
+      renderRivalsOverlay(renderer, ctx.rivals, ctx.state.score, ctx.multiplayer);
+    }
+  }
+
+  private renderExitHaze(renderer: Renderer) {
+    const HAZE_DEPTH = 100;
+    const ctx = renderer.ctx;
+    const exitScreenY = renderer.sy(EXIT_Y);
+    const hazeBottomScreenY = renderer.sy(EXIT_Y - HAZE_DEPTH);
+
+    // Gradient band warning area
+    const grad = ctx.createLinearGradient(0, exitScreenY, 0, hazeBottomScreenY);
+    grad.addColorStop(0, 'rgba(0, 50, 120, 0.3)');
+    grad.addColorStop(1, 'rgba(0, 50, 120, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, exitScreenY, renderer.width, hazeBottomScreenY - exitScreenY);
+
+    // Solid haze above exit line
+    if (exitScreenY > 0) {
+      ctx.fillStyle = 'rgba(0, 50, 120, 0.35)';
+      ctx.fillRect(0, 0, renderer.width, exitScreenY);
+    }
+
+    // Dashed boundary line at exit threshold
+    ctx.strokeStyle = 'rgba(80, 140, 255, 0.3)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([8, 8]);
+    ctx.beginPath();
+    ctx.moveTo(0, exitScreenY);
+    ctx.lineTo(renderer.width, exitScreenY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  private renderLandingWarning(renderer: Renderer) {
+    const pad = this.landingPad;
+    const ship = this.ship;
+    const dx = ship.pos.x - pad.pos.x;
+    const dy = ship.pos.y - pad.pos.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    const warnRange = 80;
+    if (dist > warnRange) return;
+
+    const angleDev = Math.abs(ship.angle - Math.PI / 2);
+    const angleDevNorm = angleDev > Math.PI ? Math.PI * 2 - angleDev : angleDev;
+    const maxAngleRad = (settings.maxLandingAngle * Math.PI) / 180;
+    const tooTilted = angleDevNorm > maxAngleRad;
+    const tooFast = Math.abs(ship.vel.y) > settings.maxLandingSpeed;
+
+    if (!tooTilted && !tooFast) return;
+
+    // Flash red at ~4Hz
+    const flash = Math.sin(Date.now() * 0.025) > 0;
+    if (!flash) return;
+
+    const padScreenX = renderer.sx(pad.pos.x);
+    const padScreenY = renderer.sy(pad.pos.y);
+
+    const hw = settings.padWidth / 2 * renderer.camScale;
+    renderer.ctx.strokeStyle = '#FF2222';
+    renderer.ctx.lineWidth = 2;
+    renderer.ctx.beginPath();
+    renderer.ctx.moveTo(padScreenX - hw - 6, padScreenY);
+    renderer.ctx.lineTo(padScreenX + hw + 6, padScreenY);
+    renderer.ctx.stroke();
+
+    const warnings: string[] = [];
+    if (tooFast) warnings.push('SPEED');
+    if (tooTilted) warnings.push('ANGLE');
+    renderer.drawText(warnings.join(' / '), padScreenX, padScreenY - 14, '#FF2222', 10, 'center');
   }
 }

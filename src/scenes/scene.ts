@@ -1,5 +1,7 @@
 import { type InputManager } from '../core/input.js';
 import { type Renderer } from '../render/renderer.js';
+import { type MultiplayerSession } from '../net/multiplayer-session.js';
+import { type RivalsManager } from '../entities/rivals.js';
 
 export interface GameState {
   score: number;
@@ -15,6 +17,8 @@ export interface SceneContext {
   input: InputManager;
   renderer: Renderer;
   state: GameState;
+  multiplayer: MultiplayerSession | null;
+  rivals: RivalsManager | null;
   pushScene: (scene: Scene) => void;
   popScene: () => void;
   replaceScene: (scene: Scene) => void;

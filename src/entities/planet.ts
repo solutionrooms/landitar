@@ -1,8 +1,6 @@
 import { Vec2 } from '../math/vec2.js';
 import { type Renderer } from '../render/renderer.js';
 
-const ORBIT_SPEED_BASE = 0.15; // radians/sec
-
 export interface PlanetDef {
   id: number;
   name: string;
@@ -14,10 +12,23 @@ export interface PlanetDef {
   isReactor?: boolean;
 }
 
+export interface PlanetSavedState {
+  turretsAlive: boolean[];
+  depotsAlive: boolean[];
+  cleared: boolean;
+}
+
+// Score value per planet (higher for harder planets)
+function planetScore(id: number): number {
+  return 3000 + id * 750;
+}
+
 export class Planet {
   pos = Vec2.zero();
   orbitAngle: number;
   cleared = false;
+  explosivesPlanted = false;
+  savedState?: PlanetSavedState;
   readonly def: PlanetDef;
 
   constructor(def: PlanetDef, initialAngle: number) {
@@ -41,13 +52,137 @@ export class Planet {
   render(renderer: Renderer) {
     if (this.cleared) return;
 
+    const { x, y } = this.pos;
+    const r = this.def.radius;
     const color = this.def.isReactor ? '#FF4444' : this.def.color;
-    renderer.drawCircle(this.pos.x, this.pos.y, this.def.radius, color, 2);
+    const style = this.def.id % 12;
 
-    // Planet label
-    const sx = renderer.sx(this.pos.x);
-    const sy = renderer.sy(this.pos.y) + this.def.radius * renderer.camScale + 14;
+    // Each planet gets a unique vector art style
+    switch (style) {
+      case 0: // Crosshair with arrows
+        renderer.drawCircle(x, y, r, color, 2);
+        renderer.drawLine(x - r * 1.6, y, x + r * 1.6, y, color, 1.5);
+        renderer.drawLine(x, y - r * 1.6, x, y + r * 1.6, color, 1.5);
+        renderer.drawFilledCircle(x, y, 2, color);
+        break;
+
+      case 1: // Hexagon with inner dot
+        this.drawNgon(renderer, x, y, r, 6, 0, color);
+        renderer.drawFilledCircle(x, y, 3, color);
+        break;
+
+      case 2: // Circle with 6 radiating rays
+        renderer.drawCircle(x, y, r * 0.7, color, 2);
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2;
+          renderer.drawLine(
+            x + Math.cos(a) * r * 0.5, y + Math.sin(a) * r * 0.5,
+            x + Math.cos(a) * r * 1.6, y + Math.sin(a) * r * 1.6,
+            color, 1.5,
+          );
+        }
+        break;
+
+      case 3: // Diamond with inner cross
+        this.drawNgon(renderer, x, y, r, 4, Math.PI / 4, color);
+        renderer.drawLine(x - r * 0.5, y, x + r * 0.5, y, color, 1);
+        renderer.drawLine(x, y - r * 0.5, x, y + r * 0.5, color, 1);
+        break;
+
+      case 4: // Saturn ring
+        renderer.drawCircle(x, y, r * 0.8, color, 2);
+        renderer.ctx.save();
+        renderer.ctx.strokeStyle = color;
+        renderer.ctx.lineWidth = 1.5;
+        renderer.ctx.beginPath();
+        renderer.ctx.ellipse(
+          renderer.sx(x), renderer.sy(y),
+          r * 1.8 * renderer.camScale, r * 0.5 * renderer.camScale,
+          0, 0, Math.PI * 2,
+        );
+        renderer.ctx.stroke();
+        renderer.ctx.restore();
+        break;
+
+      case 5: // Double circle
+        renderer.drawCircle(x, y, r, color, 2);
+        renderer.drawCircle(x, y, r * 0.5, color, 1.5);
+        break;
+
+      case 6: // Starburst (8 spikes, no circle)
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          const inner = r * 0.3;
+          const outer = i % 2 === 0 ? r * 1.4 : r * 1.0;
+          renderer.drawLine(
+            x + Math.cos(a) * inner, y + Math.sin(a) * inner,
+            x + Math.cos(a) * outer, y + Math.sin(a) * outer,
+            color, 2,
+          );
+        }
+        renderer.drawCircle(x, y, r * 0.3, color, 1.5);
+        break;
+
+      case 7: // Circle with X
+        renderer.drawCircle(x, y, r, color, 2);
+        renderer.drawLine(x - r, y - r, x + r, y + r, color, 1.5);
+        renderer.drawLine(x - r, y + r, x + r, y - r, color, 1.5);
+        break;
+
+      case 8: // Triangle
+        this.drawNgon(renderer, x, y, r, 3, -Math.PI / 2, color);
+        renderer.drawFilledCircle(x, y, 2, color);
+        break;
+
+      case 9: // Circle with compass points
+        renderer.drawCircle(x, y, r, color, 2);
+        for (let i = 0; i < 4; i++) {
+          const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+          renderer.drawLine(
+            x + Math.cos(a) * r, y + Math.sin(a) * r,
+            x + Math.cos(a) * r * 1.5, y + Math.sin(a) * r * 1.5,
+            color, 2,
+          );
+        }
+        break;
+
+      case 10: // Pentagon with inner star
+        this.drawNgon(renderer, x, y, r, 5, -Math.PI / 2, color);
+        this.drawNgon(renderer, x, y, r * 0.5, 5, Math.PI / 2, color);
+        break;
+
+      case 11: // REACTOR - pulsing circle with many spikes
+        {
+          const pulse = 1 + Math.sin(Date.now() * 0.005) * 0.15;
+          const rr = r * pulse;
+          renderer.drawCircle(x, y, rr * 0.6, color, 2);
+          renderer.drawCircle(x, y, rr, color, 1);
+          for (let i = 0; i < 10; i++) {
+            const a = (i / 10) * Math.PI * 2;
+            renderer.drawLine(
+              x + Math.cos(a) * rr * 0.7, y + Math.sin(a) * rr * 0.7,
+              x + Math.cos(a) * rr * 1.6, y + Math.sin(a) * rr * 1.6,
+              color, 2,
+            );
+          }
+        }
+        break;
+    }
+
+    // Label: name + score
+    const sx = renderer.sx(x);
+    const sy = renderer.sy(y) + r * renderer.camScale + 14;
     renderer.drawText(this.def.name, sx, sy, color, 10, 'center');
+    renderer.drawText(String(planetScore(this.def.id)), sx, sy + 12, color, 8, 'center');
+  }
+
+  private drawNgon(renderer: Renderer, cx: number, cy: number, r: number, sides: number, startAngle: number, color: string) {
+    const pts: { x: number; y: number }[] = [];
+    for (let i = 0; i < sides; i++) {
+      const a = startAngle + (i / sides) * Math.PI * 2;
+      pts.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r });
+    }
+    renderer.drawPolygon(pts, color, true, 2);
   }
 }
 

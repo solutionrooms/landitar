@@ -4,7 +4,7 @@ import { type Renderer } from '../render/renderer.js';
 import { Colors } from '../render/colors.js';
 
 const FUEL_AMOUNT = 2500;
-const PICKUP_RANGE = 30;
+const GRAB_SPEED = 300;
 
 const DEPOT_SHAPE: Segment[] = [
   { x1: -5, y1: 0, x2: -5, y2: 8 },
@@ -21,16 +21,27 @@ export interface FuelDepotDef {
 export class FuelDepot {
   pos: Vec2;
   alive = true;
-  readonly pickupRange = PICKUP_RANGE;
+  grabbed = false;       // animating toward ship
   readonly fuelAmount = FUEL_AMOUNT;
 
   constructor(def: FuelDepotDef) {
     this.pos = new Vec2(def.x, def.y);
   }
 
+  /** Call each frame while grabbed - returns true when reached the ship */
+  updateGrab(dt: number, shipPos: Vec2): boolean {
+    if (!this.grabbed) return false;
+    const diff = shipPos.sub(this.pos);
+    const dist = diff.length();
+    if (dist < 10) return true; // arrived
+    this.pos.addMut(diff.normalize().scale(GRAB_SPEED * dt));
+    return false;
+  }
+
   render(renderer: Renderer) {
     if (!this.alive) return;
-    const segs = transformSegments(DEPOT_SHAPE, this.pos.x, this.pos.y, 0);
-    renderer.drawSegments(segs, Colors.fuelDepot, 2);
+    const scale = this.grabbed ? 0.7 : 1;
+    const segs = transformSegments(DEPOT_SHAPE, this.pos.x, this.pos.y, 0, scale);
+    renderer.drawSegments(segs, this.grabbed ? Colors.shield : Colors.fuelDepot, 2);
   }
 }

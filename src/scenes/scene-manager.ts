@@ -11,11 +11,14 @@ export class SceneManager {
     public input: InputManager,
     public renderer: Renderer,
     public state: GameState,
+    public multiplayer: import('../net/multiplayer-session.js').MultiplayerSession | null = null,
   ) {
     this.ctx = {
       input,
       renderer,
       state,
+      multiplayer,
+      rivals: null,
       pushScene: (scene: Scene) => this.push(scene),
       popScene: () => this.pop(),
       replaceScene: (scene: Scene) => this.replace(scene),

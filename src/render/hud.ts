@@ -1,6 +1,7 @@
 import { type Renderer } from './renderer.js';
 import { type GameState } from '../scenes/scene.js';
 import { Colors } from './colors.js';
+import { settings } from '../core/settings.js';
 
 export function renderHud(renderer: Renderer, state: GameState) {
   const w = renderer.width;
@@ -18,12 +19,10 @@ export function renderHud(renderer: Renderer, state: GameState) {
   const barH = 14;
   const barY = 10;
 
-  // Bar background
   renderer.ctx.strokeStyle = Colors.hud;
   renderer.ctx.lineWidth = 1;
   renderer.ctx.strokeRect(barX, barY, barW, barH);
 
-  // Bar fill
   const fuelColor = fuelPct > 0.25 ? Colors.fuel : Colors.fuelLow;
   renderer.ctx.fillStyle = fuelColor;
   renderer.ctx.fillRect(barX + 1, barY + 1, (barW - 2) * fuelPct, barH - 2);
@@ -32,4 +31,15 @@ export function renderHud(renderer: Renderer, state: GameState) {
 
   // Universe
   renderer.drawText(`UNIVERSE ${state.universe}`, w / 2, 24, Colors.text, 14, 'center');
+
+  // Debug: show active settings so we can verify they're being applied
+  const dbg = [
+    `grav:${settings.starGravity}`,
+    `pgrav:${settings.planetGravity.toFixed(1)}x`,
+    `thrust:${settings.thrustPower}`,
+    `rot:${settings.rotateSpeed}`,
+    `acc:${Math.round(settings.turretAccuracy * 100)}%`,
+    `tspd:${settings.turretBulletSpeed}`,
+  ];
+  renderer.drawText(dbg.join('  '), 10, renderer.height - 10, '#555555', 10, 'left');
 }

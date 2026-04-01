@@ -3,6 +3,7 @@ import { type Segment, transformSegments } from '../math/collision.js';
 import { type Renderer } from '../render/renderer.js';
 import { Colors } from '../render/colors.js';
 import { settings } from '../core/settings.js';
+import { playFireSound, startThrust, stopThrust } from '../core/audio.js';
 
 const BULLET_LIFETIME = 1.2;
 const SHIP_RADIUS = 8;
@@ -56,10 +57,13 @@ export class Ship {
     this.shielded = input.shield && fuel > 0;
     if (this.shielded) fuelUsed += settings.fuelShieldRate * dt;
 
-    this.thrusting = input.thrust && fuel > 0;
+    const wasThrusting = this.thrusting;
+    this.thrusting = input.thrust;
     if (this.thrusting) {
       this.vel.addMut(Vec2.fromAngle(this.angle, settings.thrustPower * dt));
-      fuelUsed += settings.fuelThrustRate * dt;
+      if (!wasThrusting) startThrust();
+    } else if (wasThrusting) {
+      stopThrust();
     }
 
     if (this.vel.length() > settings.maxSpeed) {
@@ -69,13 +73,14 @@ export class Ship {
     this.pos.addMut(this.vel.scale(dt));
 
     this.fireCooldown -= dt;
-    if (input.fire && this.fireCooldown <= 0 && !this.shielded) {
+    if (input.fire && this.fireCooldown <= 0 && !this.shielded && this.bullets.length < settings.maxBullets) {
       this.fireCooldown = settings.fireCooldown;
       this.bullets.push({
         pos: this.pos.add(Vec2.fromAngle(this.angle, 12)),
         vel: Vec2.fromAngle(this.angle, settings.bulletSpeed).add(this.vel),
         life: BULLET_LIFETIME,
       });
+      playFireSound();
     }
 
     for (const b of this.bullets) {
@@ -94,6 +99,7 @@ export class Ship {
   kill() {
     this.alive = false;
     this.respawnTimer = 2.0;
+    stopThrust();
   }
 
   render(renderer: Renderer) {

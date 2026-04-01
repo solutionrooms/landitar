@@ -43,6 +43,44 @@ export function circleVsSegments(cx: number, cy: number, radius: number, segment
   return false;
 }
 
+/** Find the closest colliding segment and return the outward normal + penetration depth. */
+export function circleVsSegmentsInfo(
+  cx: number, cy: number, radius: number, segments: Segment[],
+): { normalX: number; normalY: number; depth: number } | null {
+  let bestDist = radius;
+  let bestNx = 0, bestNy = 0;
+
+  for (const seg of segments) {
+    const dist = pointToSegmentDist(cx, cy, seg);
+    if (dist < bestDist) {
+      bestDist = dist;
+      // Normal points from closest point on segment toward circle center
+      const dx = seg.x2 - seg.x1, dy = seg.y2 - seg.y1;
+      const lenSq = dx * dx + dy * dy;
+      let t = lenSq === 0 ? 0 : ((cx - seg.x1) * dx + (cy - seg.y1) * dy) / lenSq;
+      t = Math.max(0, Math.min(1, t));
+      let nx = cx - (seg.x1 + t * dx);
+      let ny = cy - (seg.y1 + t * dy);
+      const nl = Math.sqrt(nx * nx + ny * ny);
+      if (nl > 0.001) {
+        bestNx = nx / nl;
+        bestNy = ny / nl;
+      }
+    }
+  }
+
+  return bestDist < radius ? { normalX: bestNx, normalY: bestNy, depth: radius - bestDist } : null;
+}
+
+/** Test if a line of sight between two points is blocked by any terrain segment. */
+export function hasLineOfSight(ax: number, ay: number, bx: number, by: number, segments: Segment[]): boolean {
+  const los: Segment = { x1: ax, y1: ay, x2: bx, y2: by };
+  for (const seg of segments) {
+    if (segmentIntersection(los, seg)) return false;
+  }
+  return true;
+}
+
 /** Get segments of a shape rotated and translated */
 export function transformSegments(
   segments: Segment[],

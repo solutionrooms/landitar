@@ -1,8 +1,9 @@
 import { Vec2 } from '../math/vec2.js';
-import { type Segment, transformSegments } from '../math/collision.js';
+import { type Segment, transformSegments, hasLineOfSight } from '../math/collision.js';
 import { type Renderer } from '../render/renderer.js';
 import { Colors } from '../render/colors.js';
 import { settings } from '../core/settings.js';
+import { playEnemyFireSound } from '../core/audio.js';
 
 const TURRET_RADIUS = 8;
 const BULLET_LIFETIME = 2.0;
@@ -39,10 +40,11 @@ export class Turret {
   constructor(def: TurretDef) {
     this.pos = new Vec2(def.x, def.y);
     this.mountAngle = def.angle;
-    this.fireTimer = Math.random() * settings.turretFireRate;
+    // Minimum 1s delay before first shot so player isn't hit on entry
+    this.fireTimer = 1.0 + Math.random() * settings.turretFireRate;
   }
 
-  update(dt: number, playerPos: Vec2) {
+  update(dt: number, playerPos: Vec2, terrainSegments?: Segment[]) {
     for (const b of this.bullets) {
       b.pos.addMut(b.vel.scale(dt));
       b.life -= dt;
@@ -54,15 +56,22 @@ export class Turret {
     const dist = this.pos.distanceTo(playerPos);
     if (dist > settings.turretAimRange) return;
 
+    // Only fire if we have line of sight to player
+    if (terrainSegments && !hasLineOfSight(this.pos.x, this.pos.y, playerPos.x, playerPos.y, terrainSegments)) {
+      return;
+    }
+
     this.fireTimer -= dt;
     if (this.fireTimer <= 0) {
       this.fireTimer = settings.turretFireRate;
-      const aimAngle = this.pos.angleTo(playerPos);
+      const spread = (1 - settings.turretAccuracy) * Math.PI;
+      const aimAngle = this.pos.angleTo(playerPos) + (Math.random() - 0.5) * spread;
       this.bullets.push({
         pos: this.pos.add(Vec2.fromAngle(aimAngle, 10)),
         vel: Vec2.fromAngle(aimAngle, settings.turretBulletSpeed),
         life: BULLET_LIFETIME,
       });
+      playEnemyFireSound();
     }
   }
 

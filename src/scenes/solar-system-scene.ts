@@ -8,6 +8,8 @@ import { PlanetScene } from './planet-scene.js';
 import { GameOverScene } from './game-over-scene.js';
 import { renderHud } from '../render/hud.js';
 import { Colors } from '../render/colors.js';
+import { playDeathSound, playExplosionSound } from '../core/audio.js';
+import { renderRivalsOverlay } from '../render/opponent-overlay.js';
 
 const ENTRY_RADIUS = 20;
 const FUEL_DRAIN = 1; // fuel per second in overworld
@@ -18,7 +20,8 @@ export class SolarSystemScene implements Scene {
   private planets!: Planet[];
   private explosions: Explosion[] = [];
   private ctx!: SceneContext;
-  private reentryTimer = 0; // prevents immediate planet re-entry
+  private reentryTimer = 0;
+  private bgStars: { x: number; y: number; size: number; speed: number }[] = [];
 
   enter(ctx: SceneContext) {
     this.ctx = ctx;
@@ -26,6 +29,17 @@ export class SolarSystemScene implements Scene {
     this.ship.angle = Math.PI / 2;
     this.star = new Star(0, 0);
     this.planets = createPlanets();
+
+    // Generate background starfield
+    this.bgStars = [];
+    for (let i = 0; i < 120; i++) {
+      this.bgStars.push({
+        x: (Math.random() - 0.5) * 1400,
+        y: (Math.random() - 0.5) * 1400,
+        size: 0.3 + Math.random() * 1.0,
+        speed: 0.5 + Math.random() * 3,
+      });
+    }
 
     // Mark cleared planets
     for (const p of this.planets) {
@@ -40,13 +54,22 @@ export class SolarSystemScene implements Scene {
   update(dt: number, ctx: SceneContext) {
     const { input, state } = ctx;
 
-    // Drain fuel
-    state.fuel -= FUEL_DRAIN * dt;
     if (state.fuel <= 0) {
       state.fuel = 0;
-      // Game over - out of fuel
       ctx.replaceScene(new GameOverScene());
       return;
+    }
+
+    // Check for planet explosions (returning from planted explosives)
+    for (const p of this.planets) {
+      if (p.explosivesPlanted) {
+        p.explosivesPlanted = false;
+        p.cleared = true;
+        state.planetsCleared[p.def.id] = true;
+        this.explosions.push(new Explosion(p.pos.x, p.pos.y, 40));
+        state.score += 2000;
+        playExplosionSound();
+      }
     }
 
     // Update star
@@ -69,7 +92,10 @@ export class SolarSystemScene implements Scene {
         this.killShip(ctx);
       }
 
-      // Check planet entry (with cooldown after returning)
+      // After returning from a planet, slow the ship down
+      if (this.reentryTimer > 0 && this.reentryTimer > 0.9) {
+        this.ship.vel.scaleMut(0.3);
+      }
       this.reentryTimer -= dt;
       if (this.reentryTimer <= 0) {
         for (const p of this.planets) {
@@ -101,6 +127,11 @@ export class SolarSystemScene implements Scene {
       }
     }
 
+    // Update rivals background
+    if (ctx.rivals) {
+      ctx.rivals.updateBackground(dt, 'solar');
+    }
+
     // Update explosions
     for (const e of this.explosions) e.update(dt);
     this.explosions = this.explosions.filter(e => !e.done);
@@ -110,6 +141,7 @@ export class SolarSystemScene implements Scene {
     this.explosions.push(new Explosion(this.ship.pos.x, this.ship.pos.y));
     this.ship.kill();
     ctx.state.lives--;
+    playDeathSound();
   }
 
   render(renderer: Renderer, ctx: SceneContext) {
@@ -121,18 +153,29 @@ export class SolarSystemScene implements Scene {
 
     renderer.beginFrame();
 
-    // Draw orbit paths (subtle)
+    // Background starfield (twinkle)
+    const now = Date.now();
+    for (const s of this.bgStars) {
+      const twinkle = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(now * 0.001 * s.speed + s.x));
+      const c = Math.round(twinkle * 180);
+      renderer.drawFilledCircle(s.x, s.y, s.size, `rgb(${c},${c},${c + 20})`);
+    }
+
+    // Draw orbit paths (subtle dashed)
     for (const p of this.planets) {
       if (p.cleared) continue;
-      renderer.ctx.strokeStyle = '#111111';
-      renderer.ctx.lineWidth = 0.5;
-      renderer.ctx.beginPath();
-      renderer.ctx.arc(
+      const c = renderer.ctx;
+      c.strokeStyle = '#181828';
+      c.lineWidth = 0.5;
+      c.setLineDash([4, 8]);
+      c.beginPath();
+      c.arc(
         renderer.sx(0), renderer.sy(0),
         p.def.orbitRadius * renderer.camScale,
-        0, Math.PI * 2
+        0, Math.PI * 2,
       );
-      renderer.ctx.stroke();
+      c.stroke();
+      c.setLineDash([]);
     }
 
     this.star.render(renderer);
@@ -141,5 +184,22 @@ export class SolarSystemScene implements Scene {
     for (const e of this.explosions) e.render(renderer);
 
     renderHud(renderer, ctx.state);
+
+    // Rivals overlay (bots + network)
+    if (ctx.rivals) {
+      ctx.rivals.handlePipKeys(code => ctx.input.wasPressed(code));
+      if (ctx.multiplayer?.isMultiplayer) {
+        ctx.multiplayer.maybeBroadcastState(ctx.state);
+        ctx.multiplayer.broadcastShipState(this.ship, 'solar');
+        // Update human rival from network
+        for (const r of ctx.rivals.rivals) {
+          if (r.isHuman) {
+            r.visual.applyState(ctx.multiplayer.remoteShip);
+            r.score = ctx.multiplayer.remote.score;
+          }
+        }
+      }
+      renderRivalsOverlay(renderer, ctx.rivals, ctx.state.score, ctx.multiplayer);
+    }
   }
 }
