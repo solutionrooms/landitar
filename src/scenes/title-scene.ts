@@ -55,8 +55,8 @@ export class TitleScene implements Scene {
   // --- Main menu: 1 PLAYER | MULTIPLAYER | SETTINGS | PREFERENCES | LEVEL DEBUG ---
   private updateMain(input: InputManager, ctx: SceneContext) {
     const items = 5;
-    if (input.wasPressed('ArrowUp') || input.wasPressed('KeyW')) this.menuIndex = (this.menuIndex - 1 + items) % items;
-    if (input.wasPressed('ArrowDown') || input.wasPressed('KeyS')) this.menuIndex = (this.menuIndex + 1) % items;
+    if (input.wasPressed('ArrowLeft') || input.wasPressed('ArrowUp') || input.wasPressed('KeyA') || input.wasPressed('KeyW')) this.menuIndex = (this.menuIndex - 1 + items) % items;
+    if (input.wasPressed('ArrowRight') || input.wasPressed('ArrowDown') || input.wasPressed('KeyD') || input.wasPressed('KeyS')) this.menuIndex = (this.menuIndex + 1) % items;
 
     if (input.wasPressed('Enter') || input.wasPressed('Space')) {
       if (this.menuIndex === 0) {
