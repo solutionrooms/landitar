@@ -805,13 +805,6 @@ function placeTurrets(
 ): TurretDef[] {
   const nSegs = closed ? terrain.length : terrain.length - 1;
 
-  // For closed polygons, use winding order to determine inward normals reliably.
-  // All tunnel generators trace clockwise (in Y-up), so inward = right normal = (dy, -dx)/len.
-  // If signedArea < 0, it's clockwise; inward normal is (dy, -dx)/len.
-  // If signedArea > 0, it's counterclockwise; inward normal is (-dy, dx)/len.
-  const useWinding = closed && terrain.length >= 3;
-  const cwSign = useWinding ? (signedArea(terrain) < 0 ? -1 : 1) : 0;
-
   const candidates: { x: number; y: number; angle: number; score: number }[] = [];
   for (let i = 0; i < nSegs; i++) {
     const a = terrain[i];
@@ -824,23 +817,35 @@ function placeTurrets(
     const mx = (a.x + b.x) / 2;
     const my = (a.y + b.y) / 2;
 
+    // Two candidate normals
+    const n1x = -dy / len, n1y = dx / len;
+    const n2x = dy / len, n2y = -dx / len;
+
     let nx: number, ny: number;
-    if (useWinding) {
-      // Use winding order: for CW polygon, inward normal = (dy, -dx)/len
-      nx = cwSign * dy / len;
-      ny = cwSign * -dx / len;
+    if (closed) {
+      // For closed polygons: try both normals, pick the one that lands inside
+      const p1x = mx + n1x * 12, p1y = my + n1y * 12;
+      const p2x = mx + n2x * 12, p2y = my + n2y * 12;
+      const in1 = pointInPolygon(p1x, p1y, terrain);
+      const in2 = pointInPolygon(p2x, p2y, terrain);
+      if (in1 && !in2) { nx = n1x; ny = n1y; }
+      else if (in2 && !in1) { nx = n2x; ny = n2y; }
+      else if (in1 && in2) {
+        // Both inside — use spawn reference as tiebreaker
+        const dot = n1x * (spawnX - mx) + n1y * (spawnY - my);
+        nx = dot > 0 ? n1x : n2x;
+        ny = dot > 0 ? n1y : n2y;
+      } else {
+        continue; // neither inside — skip this segment
+      }
     } else {
       // Open polyline: use spawn point as reference for inward direction
-      const n1x = -dy / len;
-      const n1y = dx / len;
       const dot = n1x * (spawnX - mx) + n1y * (spawnY - my);
-      nx = dot > 0 ? n1x : dy / len;
-      ny = dot > 0 ? n1y : -dx / len;
+      nx = dot > 0 ? n1x : n2x;
+      ny = dot > 0 ? n1y : n2y;
     }
 
     const angle = Math.atan2(ny, nx);
-
-    // Prefer flatter surfaces (lower slope) for turret placement
     const slope = Math.abs(dy / (Math.abs(dx) + 1));
     candidates.push({
       x: rn(mx + nx * 12),
@@ -855,8 +860,6 @@ function placeTurrets(
   for (const c of candidates) {
     if (selected.length >= count) break;
     if (selected.some(t => (t.x - c.x) ** 2 + (t.y - c.y) ** 2 < 55 * 55)) continue;
-    // For closed polygons, reject turrets placed outside the playable area
-    if (closed && !pointInPolygon(c.x, c.y, terrain)) continue;
     selected.push({ x: c.x, y: c.y, angle: c.angle });
   }
   return selected;
@@ -872,9 +875,6 @@ function placeDepots(
   spawnY: number,
 ): FuelDepotDef[] {
   const nSegs = closed ? terrain.length : terrain.length - 1;
-  const useWinding = closed && terrain.length >= 3;
-  const cwSign = useWinding ? (signedArea(terrain) < 0 ? -1 : 1) : 0;
-
   const candidates: Pt[] = [];
   for (let i = 0; i < nSegs; i++) {
     const a = terrain[i];
@@ -886,17 +886,25 @@ function placeDepots(
 
     const mx = (a.x + b.x) / 2;
     const my = (a.y + b.y) / 2;
+    const n1x = -dy / len, n1y = dx / len;
+    const n2x = dy / len, n2y = -dx / len;
 
     let nx: number, ny: number;
-    if (useWinding) {
-      nx = cwSign * dy / len;
-      ny = cwSign * -dx / len;
+    if (closed) {
+      const p1x = mx + n1x * 6, p1y = my + n1y * 6;
+      const p2x = mx + n2x * 6, p2y = my + n2y * 6;
+      const in1 = pointInPolygon(p1x, p1y, terrain);
+      const in2 = pointInPolygon(p2x, p2y, terrain);
+      if (in1 && !in2) { nx = n1x; ny = n1y; }
+      else if (in2 && !in1) { nx = n2x; ny = n2y; }
+      else if (in1 && in2) {
+        const dot = n1x * (spawnX - mx) + n1y * (spawnY - my);
+        nx = dot > 0 ? n1x : n2x; ny = dot > 0 ? n1y : n2y;
+      } else { continue; }
     } else {
-      const n1x = -dy / len;
-      const n1y = dx / len;
       const dot = n1x * (spawnX - mx) + n1y * (spawnY - my);
-      nx = dot > 0 ? n1x : dy / len;
-      ny = dot > 0 ? n1y : -dx / len;
+      nx = dot > 0 ? n1x : n2x;
+      ny = dot > 0 ? n1y : n2y;
     }
     candidates.push({ x: rn(mx + nx * 6), y: rn(my + ny * 6) });
   }
@@ -910,7 +918,6 @@ function placeDepots(
   const selected: FuelDepotDef[] = [];
   for (const c of candidates) {
     if (selected.length >= count) break;
-    if (closed && !pointInPolygon(c.x, c.y, terrain)) continue;
     if (turrets.some(t => (t.x - c.x) ** 2 + (t.y - c.y) ** 2 < 40 * 40)) continue;
     if (selected.some(d => (d.x - c.x) ** 2 + (d.y - c.y) ** 2 < 80 * 80)) continue;
     selected.push({ x: c.x, y: c.y });
