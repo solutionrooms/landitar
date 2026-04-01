@@ -24,14 +24,17 @@ export class Terrain {
     }
   }
 
-  /** Get the Y value of terrain at a given X (for placing objects on terrain) */
+  /** Get the lowest (floor) Y value of terrain at a given X.
+   *  When multiple segments span the same X (e.g. overhangs), returns the minimum Y. */
   getYAtX(x: number): number | null {
+    let minY: number | null = null;
     for (const seg of this.segments) {
       if ((seg.x1 <= x && x <= seg.x2) || (seg.x2 <= x && x <= seg.x1)) {
         const t = (x - seg.x1) / (seg.x2 - seg.x1);
-        return seg.y1 + t * (seg.y2 - seg.y1);
+        const y = seg.y1 + t * (seg.y2 - seg.y1);
+        if (minY === null || y < minY) minY = y;
       }
     }
-    return null;
+    return minY;
   }
 }
