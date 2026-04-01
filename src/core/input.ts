@@ -29,6 +29,14 @@ export class InputManager {
     });
   }
 
+  /** Clear all held key state (call on scene transitions to prevent stale keys) */
+  clearAll() {
+    this.keys.clear();
+    this.justPressed.clear();
+    this.touchKeys.clear();
+    this.touchJustPressed.clear();
+  }
+
   /** Call at end of each tick to clear single-frame press events */
   endTick() {
     this.justPressed.clear();

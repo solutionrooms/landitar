@@ -108,6 +108,7 @@ export class LobbyScene implements Scene {
   }
 
   private startGame(ctx: SceneContext) {
+    ctx.input.clearAll();
     ctx.state.score = 0;
     ctx.state.lives = settings.lives;
     ctx.state.fuel = settings.startingFuel;

@@ -72,6 +72,7 @@ export class GameOverScene implements Scene {
   }
 
   private playAgain(ctx: SceneContext) {
+    ctx.input.clearAll();
     const seed = settings.randomSeed || Math.floor(Math.random() * 2147483647);
     setLevels(generateLevels(seed));
 
