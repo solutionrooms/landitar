@@ -9,7 +9,7 @@ import { LandingPad } from '../entities/landing-pad.js';
 import { Terrain } from '../levels/terrain.js';
 import { LEVELS } from '../levels/level-data.js';
 import { type Planet, type PlanetSavedState } from '../entities/planet.js';
-import { circleVsSegments, circleVsSegmentsInfo, segmentIntersection, type Segment as CollisionSegment } from '../math/collision.js';
+import { circleVsSegments, circleVsSegmentsInfo, segmentIntersection, pointToSegmentDist, type Segment as CollisionSegment } from '../math/collision.js';
 import { renderHud } from '../render/hud.js';
 import { Colors } from '../render/colors.js';
 import { GameOverScene } from './game-over-scene.js';
@@ -23,17 +23,21 @@ const EXIT_Y = 450;
 const SPIKE_SIZE = 18;
 const SPIKE_SPACING = 25;
 
-/** Check if a bullet hit terrain — uses both circle test and raycast from previous position */
+/** Check if a bullet hit terrain — uses both circle test and raycast, skips dead segments */
 function bulletHitsTerrain(
   x: number, y: number, prevX: number, prevY: number,
-  segments: CollisionSegment[],
+  terrain: Terrain,
 ): boolean {
-  // Circle test at current position
-  if (circleVsSegments(x, y, 2, segments)) return true;
-  // Raycast from previous to current position (catches fast bullets skipping through)
+  // Circle test at current position (only alive segments)
+  for (let i = 0; i < terrain.segments.length; i++) {
+    if (!terrain.isAlive(i)) continue;
+    if (pointToSegmentDist(x, y, terrain.segments[i]) < 2) return true;
+  }
+  // Raycast from previous to current position
   const ray: CollisionSegment = { x1: prevX, y1: prevY, x2: x, y2: y };
-  for (const seg of segments) {
-    if (segmentIntersection(ray, seg)) return true;
+  for (let i = 0; i < terrain.segments.length; i++) {
+    if (!terrain.isAlive(i)) continue;
+    if (segmentIntersection(ray, terrain.segments[i])) return true;
   }
   return false;
 }
@@ -107,27 +111,23 @@ export class PlanetScene implements Scene {
     }
     this.bottomY = Math.min(...ys) - 60;
 
-    // Add spike walls for open levels
+    // Add spike walls for open levels (indestructible)
     if (!level.closed) {
-      this.terrain.segments.push(
-        ...generateSpikes(this.minX, EXIT_Y, this.minX, this.bottomY, 1, 0),
-      );
-      this.terrain.segments.push(
-        ...generateSpikes(this.maxX, EXIT_Y, this.maxX, this.bottomY, -1, 0),
-      );
-      this.terrain.segments.push(
-        ...generateSpikes(this.minX, this.bottomY, this.maxX, this.bottomY, 0, 1),
-      );
+      this.terrain.addSegments(generateSpikes(this.minX, EXIT_Y, this.minX, this.bottomY, 1, 0));
+      this.terrain.addSegments(generateSpikes(this.maxX, EXIT_Y, this.maxX, this.bottomY, -1, 0));
+      this.terrain.addSegments(generateSpikes(this.minX, this.bottomY, this.maxX, this.bottomY, 0, 1));
     }
 
-    // Add island/pillar terrain (closed polylines for internal obstacles)
+    // Add island/pillar terrain (indestructible)
     if (level.islands) {
       for (const island of level.islands) {
+        const islandSegs: Segment[] = [];
         for (let i = 0; i < island.length; i++) {
           const a = island[i];
           const b = island[(i + 1) % island.length];
-          this.terrain.segments.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+          islandSegs.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
         }
+        this.terrain.addSegments(islandSegs);
       }
     }
 
@@ -193,6 +193,11 @@ export class PlanetScene implements Scene {
     if (this.ctx.rivals) {
       this.ctx.rivals.despawnBots();
     }
+  }
+
+  /** Get only alive terrain segments for collision checks */
+  private aliveSegments(): Segment[] {
+    return this.terrain.segments.filter((_, i) => this.terrain.isAlive(i));
   }
 
 
@@ -271,9 +276,9 @@ export class PlanetScene implements Scene {
         }
       }
 
-      // Terrain collision (ship)
+      // Terrain collision (ship) — skip destroyed segments
       if (this.ship.alive) {
-        const hit = circleVsSegmentsInfo(this.ship.pos.x, this.ship.pos.y, this.ship.radius, this.terrain.segments);
+        const hit = circleVsSegmentsInfo(this.ship.pos.x, this.ship.pos.y, this.ship.radius, this.aliveSegments());
         if (hit) {
           if (this.ship.shielded) {
             // Bounce off: reflect velocity across surface normal
@@ -331,7 +336,9 @@ export class PlanetScene implements Scene {
         if (bullet.life > 0) {
           const prevX = bullet.pos.x - bullet.vel.x * dt;
           const prevY = bullet.pos.y - bullet.vel.y * dt;
-          if (bulletHitsTerrain(bullet.pos.x, bullet.pos.y, prevX, prevY, this.terrain.segments)) {
+          if (bulletHitsTerrain(bullet.pos.x, bullet.pos.y, prevX, prevY, this.terrain)) {
+            // Damage the wall at impact point
+            this.terrain.damageAt(bullet.pos.x, bullet.pos.y);
             bullet.life = 0;
           }
         }
@@ -382,9 +389,10 @@ export class PlanetScene implements Scene {
       }
     }
 
-    // Update turrets
+    // Update turrets (pass alive segments for line-of-sight)
+    const alive = this.aliveSegments();
     for (const t of this.turrets) {
-      t.update(dt, this.ship.pos, this.terrain.segments);
+      t.update(dt, this.ship.pos, alive);
     }
 
     // Turret bullets vs terrain - skip if still near the turret that fired it
@@ -394,8 +402,8 @@ export class PlanetScene implements Scene {
         if (!nearOwner) {
           const prevX = b.pos.x - b.vel.x * dt;
           const prevY = b.pos.y - b.vel.y * dt;
-          if (bulletHitsTerrain(b.pos.x, b.pos.y, prevX, prevY, this.terrain.segments)) {
-            b.life = 0;
+          if (bulletHitsTerrain(b.pos.x, b.pos.y, prevX, prevY, this.terrain)) {
+            b.life = 0; // turret bullets don't damage walls
           }
         }
       }
@@ -405,7 +413,7 @@ export class PlanetScene implements Scene {
     if (ctx.rivals) {
       ctx.rivals.updateBackground(dt, this.levelName);
       ctx.rivals.updateActiveBots(
-        dt, this.gravity, this.terrain.segments,
+        dt, this.gravity, alive,
         this.turrets, this.explosions,
         this.minX, this.maxX, EXIT_Y,
       );
@@ -500,8 +508,24 @@ export class PlanetScene implements Scene {
 
     renderer.beginFrame();
 
-    // Terrain
-    renderer.drawSegments(this.terrain.segments, Colors.terrain, 2);
+    // Terrain — per-segment with damage colors
+    for (let i = 0; i < this.terrain.segments.length; i++) {
+      if (!this.terrain.isAlive(i)) continue;
+      const hp = this.terrain.segmentHp[i];
+      let color: string;
+      if (hp === -1) {
+        // Indestructible (spike walls, islands) — bright green
+        color = Colors.terrain;
+      } else {
+        const dmg = this.terrain.getDamageRatio(i);
+        // Destructible walls — slightly dimmer, change color when damaged
+        if (dmg > 0.6) color = '#884400';
+        else if (dmg > 0.3) color = '#668800';
+        else if (dmg > 0) color = '#009900';
+        else color = '#00AA00'; // slightly dimmer than spike walls
+      }
+      renderer.drawSegments([this.terrain.segments[i]], color, 2);
+    }
 
     // Landing pad
     this.landingPad.render(renderer);

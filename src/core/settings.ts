@@ -8,8 +8,9 @@ export interface GameSettings {
   maxBullets: number;       // max bullets in flight at once
 
   // Fuel
-  fuelThrustRate: number;   // per second
-  fuelShieldRate: number;   // per second
+  fuelThrustRate: number;   // per second while thrusting
+  fuelShootRate: number;    // per bullet fired
+  fuelShieldRate: number;   // per second while shielded
   fuelPickup: number;       // fuel added per depot pickup
   startingFuel: number;
 
@@ -50,6 +51,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   maxBullets: 25,
 
   fuelThrustRate: 8,
+  fuelShootRate: 5,
   fuelShieldRate: 1000,
   fuelPickup: 2500,
   startingFuel: 10000,
@@ -105,6 +107,8 @@ export const SETTING_DEFS: SettingDef[] = [
   { key: 'maxLandingAngle',  label: 'Max Landing Angle',  min: 5,    max: 25,    step: 1, format: v => v + '°' },
   { key: 'maxBullets',       label: 'Max Bullets',         min: 1,    max: 50,    step: 1 },
   { key: 'fireCooldown',     label: 'Fire Cooldown',      min: 0.05, max: 0.55,  step: 0.05, format: v => v.toFixed(2) + 's' },
+  { key: 'fuelThrustRate',   label: 'Thrust Fuel Rate',    min: 0,    max: 30,    step: 1, format: v => v + '/s' },
+  { key: 'fuelShootRate',    label: 'Shoot Fuel Cost',     min: 0,    max: 20,    step: 1, format: v => String(v) },
   { key: 'fuelShieldRate',   label: 'Shield Fuel Rate',    min: 200,  max: 2000,  step: 100, format: v => v + '/s' },
   { key: 'fuelPickup',       label: 'Fuel Per Pickup',     min: 500,  max: 5000,  step: 250 },
   { key: 'startingFuel',     label: 'Starting Fuel',      min: 3000, max: 17000, step: 1000 },

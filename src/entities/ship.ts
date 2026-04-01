@@ -58,9 +58,10 @@ export class Ship {
     if (this.shielded) fuelUsed += settings.fuelShieldRate * dt;
 
     const wasThrusting = this.thrusting;
-    this.thrusting = input.thrust;
+    this.thrusting = input.thrust && fuel > 0;
     if (this.thrusting) {
       this.vel.addMut(Vec2.fromAngle(this.angle, settings.thrustPower * dt));
+      fuelUsed += settings.fuelThrustRate * dt;
       if (!wasThrusting) startThrust();
     } else if (wasThrusting) {
       stopThrust();
@@ -73,13 +74,14 @@ export class Ship {
     this.pos.addMut(this.vel.scale(dt));
 
     this.fireCooldown -= dt;
-    if (input.fire && this.fireCooldown <= 0 && !this.shielded && this.bullets.length < settings.maxBullets) {
+    if (input.fire && this.fireCooldown <= 0 && !this.shielded && this.bullets.length < settings.maxBullets && fuel > 0) {
       this.fireCooldown = settings.fireCooldown;
       this.bullets.push({
         pos: this.pos.add(Vec2.fromAngle(this.angle, 12)),
         vel: Vec2.fromAngle(this.angle, settings.bulletSpeed).add(this.vel),
         life: BULLET_LIFETIME,
       });
+      fuelUsed += settings.fuelShootRate;
       playFireSound();
     }
 
