@@ -17,6 +17,7 @@ import { settings } from '../core/settings.js';
 import { playPickupSound, playExplosionSound, playDeathSound, playLevelCompleteSound } from '../core/audio.js';
 import { renderRivalsOverlay, type PipRenderFn } from '../render/opponent-overlay.js';
 import { type RivalsManager } from '../entities/rivals.js';
+import { HyperspaceScene } from './hyperspace-scene.js';
 
 const EXIT_Y = 450;
 const SPIKE_SIZE = 18;
@@ -220,7 +221,7 @@ export class PlanetScene implements Scene {
         const idx = LEVELS.findIndex(l => l.name === rival.scene);
         if (idx >= 0) {
           state.jumpsLeft--;
-          ctx.replaceScene(new PlanetScene(idx, null));
+          ctx.replaceScene(new HyperspaceScene(new PlanetScene(idx, null)));
           return;
         }
       }

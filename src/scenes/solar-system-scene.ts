@@ -11,6 +11,7 @@ import { Colors } from '../render/colors.js';
 import { playDeathSound, playExplosionSound } from '../core/audio.js';
 import { renderRivalsOverlay } from '../render/opponent-overlay.js';
 import { LEVELS } from '../levels/level-data.js';
+import { HyperspaceScene } from './hyperspace-scene.js';
 
 const ENTRY_RADIUS = 20;
 const FUEL_DRAIN = 1; // fuel per second in overworld
@@ -68,7 +69,7 @@ export class SolarSystemScene implements Scene {
         const idx = LEVELS.findIndex(l => l.name === rival.scene);
         if (idx >= 0) {
           state.jumpsLeft--;
-          ctx.pushScene(new PlanetScene(idx, null));
+          ctx.pushScene(new HyperspaceScene(new PlanetScene(idx, null)));
           return;
         }
       }
