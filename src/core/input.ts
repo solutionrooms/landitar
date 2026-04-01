@@ -27,6 +27,11 @@ export class InputManager {
     window.addEventListener('keyup', (e) => {
       this.keys.set(e.code, false);
     });
+    // Clear all keys when window loses focus (prevents stuck keys)
+    window.addEventListener('blur', () => this.keys.clear());
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.keys.clear();
+    });
   }
 
   /** Clear all held key state (call on scene transitions to prevent stale keys) */

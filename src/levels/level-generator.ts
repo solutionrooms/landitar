@@ -1272,9 +1272,42 @@ function generateAndValidateLevel(
   rng: Rng, name: string, style: LevelStyle, difficulty: number,
   log: GenerationLog,
 ): LevelData {
-  const level = buildLevel(rng, name, style, difficulty);
+  // Try up to MAX_RETRIES — if resolveIntersections can't fix it, retry with new RNG state
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const level = buildLevel(rng, name, style, difficulty);
 
-  // Fix up remaining issues (turrets outside, pad position, etc.)
+    if (!hasSelfIntersection(level.terrain, level.closed)) {
+      // Clean — fix up and return
+      const fixups = fixupLevel(level);
+      if (fixups.length > 0) log.fixups.push({ name, removed: fixups });
+      return level;
+    }
+
+    // Log rejected attempt
+    log.rejected.push({
+      name, style, attempt: attempt + 1,
+      reason: 'self-intersection (resolveIntersections failed)',
+      terrain: [...level.terrain],
+      closed: level.closed,
+      turrets: [...level.turrets],
+      fuelDepots: [...level.fuelDepots],
+      islands: level.islands?.map(is => [...is]),
+    });
+
+    if (attempt >= MAX_RETRIES) {
+      // Fall back to wide-bowl
+      console.error(`[Level ${name}] self-intersection after ${MAX_RETRIES + 1} attempts — fallback`);
+      const fallback = buildLevel(rng, name, 'wide-bowl', difficulty);
+      fallback.name = `${name} [!]`;
+      const fixups = fixupLevel(fallback);
+      if (fixups.length > 0) log.fixups.push({ name, removed: fixups });
+      return fallback;
+    }
+  }
+
+  // Unreachable
+  const level = buildLevel(rng, name, 'wide-bowl', difficulty);
+
   const fixups = fixupLevel(level);
   if (fixups.length > 0) {
     log.fixups.push({ name, removed: fixups });

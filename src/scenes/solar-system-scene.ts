@@ -27,6 +27,7 @@ export class SolarSystemScene implements Scene {
 
   enter(ctx: SceneContext) {
     this.ctx = ctx;
+    ctx.input.clearAll(); // prevent stale shift/shield from menus
     this.ship = new Ship(0, -200);
     this.ship.angle = Math.PI / 2;
     this.star = new Star(0, 0);
