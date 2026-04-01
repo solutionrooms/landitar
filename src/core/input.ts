@@ -65,9 +65,14 @@ export class InputManager {
   get start() { return this.wasPressed('Enter') || this.wasPressed('Space'); }
 }
 
-/** Detect if device has touch support */
+/** Detect if device is touch-only (phones/tablets, not Chromebooks/laptops with touch) */
 function isTouchDevice(): boolean {
-  return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  if (!('ontouchstart' in window) && navigator.maxTouchPoints === 0) return false;
+  // Use pointer media query: coarse = finger, fine = mouse/trackpad
+  // Devices with a fine pointer (Chromebooks, laptops) should use keyboard controls
+  if (window.matchMedia('(pointer: fine)').matches) return false;
+  // Fallback: check screen size as heuristic (small = phone/tablet)
+  return window.innerWidth < 1024;
 }
 
 interface TouchButton {
