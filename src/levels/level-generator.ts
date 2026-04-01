@@ -969,7 +969,6 @@ function findPadX(terrain: Pt[], closed: boolean, spawnX = 0, spawnY = 200): num
 
     if (closed) {
       if (!isPlayable(mx, my + 10)) continue;
-      if (!isPlayable(mx, my + 40)) continue;
     }
 
     const score = 1 / (1 + slope);
@@ -1139,16 +1138,11 @@ export function validateLevel(level: LevelData): ValidationIssue[] {
     return pipFlipped ? !raw : raw;
   };
 
-  // 3. Landing pad must be inside and accessible (for closed levels)
+  // 3. Landing pad must be inside playable area (for closed levels)
   if (closed && level.padX !== undefined) {
     const padY = getMinYAtX(terrain, level.padX);
-    if (padY !== null) {
-      if (!isPlayable(level.padX, padY + 10)) {
-        issues.push({ rule: 'pad-outside', detail: 'Landing pad is outside playable area' });
-      }
-      if (!isPlayable(level.padX, padY + 50)) {
-        issues.push({ rule: 'pad-no-clearance', detail: 'No vertical clearance above landing pad' });
-      }
+    if (padY !== null && !isPlayable(level.padX, padY + 10)) {
+      issues.push({ rule: 'pad-outside', detail: 'Landing pad is outside playable area' });
     }
   }
 
@@ -1248,14 +1242,15 @@ function fixupLevel(level: LevelData): string[] {
   const fixed: string[] = [];
   const { terrain, closed, spawnX, spawnY } = level;
 
-  if (closed) {
-    // Calibrate PIP: spawn must be in the playable area
-    const pipFlipped = !pointInPolygon(spawnX, spawnY, terrain);
-    const isPlayable = (x: number, y: number) => {
-      const raw = pointInPolygon(x, y, terrain);
-      return pipFlipped ? !raw : raw;
-    };
+  // Calibrate PIP for closed levels
+  const pipFlipped = closed && !pointInPolygon(spawnX, spawnY, terrain);
+  const isPlayable = (x: number, y: number) => {
+    if (!closed) return true;
+    const raw = pointInPolygon(x, y, terrain);
+    return pipFlipped ? !raw : raw;
+  };
 
+  if (closed) {
     const tBefore = level.turrets.length;
     level.turrets = level.turrets.filter(t => isPlayable(t.x, t.y));
     const tRemoved = tBefore - level.turrets.length;
@@ -1269,9 +1264,7 @@ function fixupLevel(level: LevelData): string[] {
 
   const padY = getMinYAtX(terrain, level.padX ?? 0);
   const padOk = !closed || (
-    padY !== null &&
-    pointInPolygon(level.padX ?? 0, padY + 10, terrain) &&
-    pointInPolygon(level.padX ?? 0, padY + 50, terrain)
+    padY !== null && isPlayable(level.padX ?? 0, padY + 10)
   );
 
   if (!padOk) {
