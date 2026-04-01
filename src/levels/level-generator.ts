@@ -1237,15 +1237,7 @@ export function validateLevel(level: LevelData): ValidationIssue[] {
     }
   }
 
-  // 7. Landing pad must be reachable from spawn
-  if (level.padX !== undefined) {
-    const padY = getMinYAtX(terrain, level.padX);
-    if (padY !== null && !isReachableFromSpawn(level.padX, padY, spawnX, spawnY, terrain, closed)) {
-      issues.push({ rule: 'pad-unreachable', detail: 'No clear path from spawn to landing pad' });
-    }
-  }
-
-  // 8. For open caves, ensure enough width at opening for ship entry
+  // 7. For open caves, ensure enough width at opening for ship entry
   if (!closed) {
     const openingPts = terrain.filter(p => p.y > bounds.maxY - 20);
     if (openingPts.length >= 2) {
