@@ -72,7 +72,7 @@ export class InputManager {
   get left() { return preferences.bindings.left.some(k => this.isDown(k)); }
   get right() { return preferences.bindings.right.some(k => this.isDown(k)); }
   get thrust() { return preferences.bindings.thrust.some(k => this.isDown(k)); }
-  get fire() { return preferences.bindings.fire.some(k => this.wasPressed(k)); }
+  get fire() { return preferences.bindings.fire.some(k => this.isDown(k)); }
   get shield() { return preferences.bindings.shield.some(k => this.isDown(k)); }
   // Start is not rebindable - always Enter/Space
   get start() { return this.wasPressed('Enter') || this.wasPressed('Space'); }
