@@ -23,7 +23,9 @@ export class LevelDebugScene implements Scene {
   private selected = 0;
   private levels: LevelInfo[] = [];
   private mode: ViewMode = 'grid';
-  private detailScroll = 0; // which rejected attempt to show in detail view
+  private detailScroll = 0;
+  private copyMsg = '';
+  private copyMsgTimer = 0;
 
   enter(ctx: SceneContext) {
     this.ctx = ctx;
@@ -48,6 +50,12 @@ export class LevelDebugScene implements Scene {
 
   update(dt: number, ctx: SceneContext) {
     const { input } = ctx;
+    if (this.copyMsgTimer > 0) this.copyMsgTimer -= dt;
+
+    // C key: copy selected level data to clipboard
+    if (input.wasPressed('KeyC')) {
+      this.copyLevelData();
+    }
 
     if (this.mode === 'grid') {
       if (input.wasPressed('ArrowRight')) this.selected = Math.min(this.selected + 1, LEVELS.length - 1);
@@ -71,9 +79,8 @@ export class LevelDebugScene implements Scene {
         ctx.popScene();
       }
     } else {
-      // Detail view
       const info = this.levels[this.selected];
-      const maxScroll = info.rejected.length; // 0 = final level, 1+ = rejected attempts
+      const maxScroll = info.rejected.length;
       if (input.wasPressed('ArrowRight')) this.detailScroll = Math.min(this.detailScroll + 1, maxScroll);
       if (input.wasPressed('ArrowLeft')) this.detailScroll = Math.max(this.detailScroll - 1, 0);
       if (input.wasPressed('Escape') || input.wasPressed('Enter')) {
@@ -83,6 +90,38 @@ export class LevelDebugScene implements Scene {
         ctx.replaceScene(new PlanetScene(this.selected, null));
       }
     }
+  }
+
+  private copyLevelData() {
+    const level = LEVELS[this.selected];
+    const info = this.levels[this.selected];
+    const log = lastGenerationLog;
+
+    const data: any = {
+      name: level.name,
+      index: this.selected,
+      seed: log?.seed,
+      closed: level.closed,
+      gravity: level.gravity,
+      spawnX: level.spawnX,
+      spawnY: level.spawnY,
+      padX: level.padX,
+      terrain: level.terrain,
+      turrets: level.turrets,
+      fuelDepots: level.fuelDepots,
+      islands: level.islands,
+      validation: info.issues.map(i => `${i.rule}: ${i.detail}`),
+      fixups: info.fixups,
+    };
+
+    const text = JSON.stringify(data, null, 2);
+    navigator.clipboard.writeText(text).then(() => {
+      this.copyMsg = `Copied ${level.name} (${text.length} chars)`;
+      this.copyMsgTimer = 2;
+    }).catch(() => {
+      this.copyMsg = 'Copy failed — check permissions';
+      this.copyMsgTimer = 2;
+    });
   }
 
   render(renderer: Renderer) {
@@ -104,7 +143,10 @@ export class LevelDebugScene implements Scene {
     const ctx = renderer.ctx;
 
     renderer.drawText('LEVEL DEBUG', w / 2, 18, Colors.star, 20, 'center');
-    renderer.drawText('ARROWS: Select  SPACE: Play  ENTER: Detail  ESC: Back', w / 2, 36, Colors.hud, 10, 'center');
+    renderer.drawText('ARROWS: Select  SPACE: Play  ENTER: Detail  C: Copy  ESC: Back', w / 2, 36, Colors.hud, 10, 'center');
+    if (this.copyMsgTimer > 0) {
+      renderer.drawText(this.copyMsg, w / 2, 50, '#44FF44', 10, 'center');
+    }
 
     const margin = 12;
     const topOffset = 48;
@@ -193,7 +235,10 @@ export class LevelDebugScene implements Scene {
 
     // Header
     renderer.drawText(`${level.name} — GENERATION HISTORY`, w / 2, 18, Colors.star, 18, 'center');
-    renderer.drawText('LEFT/RIGHT: Browse attempts  ESC: Back  SPACE: Play', w / 2, 36, Colors.hud, 10, 'center');
+    renderer.drawText('LEFT/RIGHT: Browse attempts  C: Copy  ESC: Back  SPACE: Play', w / 2, 36, Colors.hud, 10, 'center');
+    if (this.copyMsgTimer > 0) {
+      renderer.drawText(this.copyMsg, w / 2, 50, '#44FF44', 10, 'center');
+    }
 
     // Show tabs: [Rejected 1] [Rejected 2] ... [Final]
     const tabY = 54;
