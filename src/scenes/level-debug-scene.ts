@@ -64,16 +64,11 @@ export class LevelDebugScene implements Scene {
       if (input.wasPressed('ArrowUp')) this.selected = Math.max(this.selected - COLS, 0);
 
       if (input.wasPressed('Enter')) {
-        const info = this.levels[this.selected];
-        if (info.rejected.length > 0 || info.fixups.length > 0) {
-          this.mode = 'detail';
-          this.detailScroll = 0;
-        } else {
-          ctx.replaceScene(new PlanetScene(this.selected, null));
-        }
+        ctx.replaceScene(new PlanetScene(this.selected, null));
       }
       if (input.wasPressed('Space')) {
-        ctx.replaceScene(new PlanetScene(this.selected, null));
+        this.mode = 'detail';
+        this.detailScroll = this.levels[this.selected].rejected.length; // start on FINAL tab
       }
       if (input.wasPressed('Escape')) {
         ctx.popScene();
@@ -83,10 +78,10 @@ export class LevelDebugScene implements Scene {
       const maxScroll = info.rejected.length;
       if (input.wasPressed('ArrowRight')) this.detailScroll = Math.min(this.detailScroll + 1, maxScroll);
       if (input.wasPressed('ArrowLeft')) this.detailScroll = Math.max(this.detailScroll - 1, 0);
-      if (input.wasPressed('Escape') || input.wasPressed('Enter')) {
+      if (input.wasPressed('Escape') || input.wasPressed('Space')) {
         this.mode = 'grid';
       }
-      if (input.wasPressed('Space')) {
+      if (input.wasPressed('Enter')) {
         ctx.replaceScene(new PlanetScene(this.selected, null));
       }
     }
@@ -143,7 +138,7 @@ export class LevelDebugScene implements Scene {
     const ctx = renderer.ctx;
 
     renderer.drawText('LEVEL DEBUG', w / 2, 18, Colors.star, 20, 'center');
-    renderer.drawText('ARROWS: Select  SPACE: Play  ENTER: Detail  C: Copy  ESC: Back', w / 2, 36, Colors.hud, 10, 'center');
+    renderer.drawText('ARROWS: Select  ENTER: Play  SPACE: Detail  C: Copy  ESC: Back', w / 2, 36, Colors.hud, 10, 'center');
     if (this.copyMsgTimer > 0) {
       renderer.drawText(this.copyMsg, w / 2, 50, '#44FF44', 10, 'center');
     }
@@ -235,7 +230,7 @@ export class LevelDebugScene implements Scene {
 
     // Header
     renderer.drawText(`${level.name} — GENERATION HISTORY`, w / 2, 18, Colors.star, 18, 'center');
-    renderer.drawText('LEFT/RIGHT: Browse attempts  C: Copy  ESC: Back  SPACE: Play', w / 2, 36, Colors.hud, 10, 'center');
+    renderer.drawText('LEFT/RIGHT: Browse attempts  C: Copy  ESC: Back  ENTER: Play', w / 2, 36, Colors.hud, 10, 'center');
     if (this.copyMsgTimer > 0) {
       renderer.drawText(this.copyMsg, w / 2, 50, '#44FF44', 10, 'center');
     }
