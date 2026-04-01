@@ -1,3 +1,5 @@
+import { preferences } from './preferences.js';
+
 export class InputManager {
   private keys = new Map<string, boolean>();
   private justPressed = new Set<string>();
@@ -6,8 +8,16 @@ export class InputManager {
   private touchKeys = new Map<string, boolean>();
   private touchJustPressed = new Set<string>();
 
+  /** Set by preferences scene to capture the next key press */
+  onNextKeyDown: ((code: string) => void) | null = null;
+
   constructor() {
     window.addEventListener('keydown', (e) => {
+      if (this.onNextKeyDown) {
+        e.preventDefault();
+        this.onNextKeyDown(e.code);
+        return;
+      }
       if (!this.keys.get(e.code)) {
         this.justPressed.add(e.code);
       }
@@ -45,12 +55,13 @@ export class InputManager {
     return this.justPressed.has(code) || this.touchJustPressed.has(code);
   }
 
-  // Convenience
-  get left() { return this.isDown('ArrowLeft') || this.isDown('KeyA'); }
-  get right() { return this.isDown('ArrowRight') || this.isDown('KeyD'); }
-  get thrust() { return this.isDown('ArrowUp') || this.isDown('KeyW'); }
-  get fire() { return this.wasPressed('Space'); }
-  get shield() { return this.isDown('ShiftLeft') || this.isDown('ShiftRight') || this.isDown('KeyS'); }
+  // Convenience - gameplay actions read from preferences
+  get left() { return preferences.bindings.left.some(k => this.isDown(k)); }
+  get right() { return preferences.bindings.right.some(k => this.isDown(k)); }
+  get thrust() { return preferences.bindings.thrust.some(k => this.isDown(k)); }
+  get fire() { return preferences.bindings.fire.some(k => this.wasPressed(k)); }
+  get shield() { return preferences.bindings.shield.some(k => this.isDown(k)); }
+  // Start is not rebindable - always Enter/Space
   get start() { return this.wasPressed('Enter') || this.wasPressed('Space'); }
 }
 

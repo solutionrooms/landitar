@@ -111,20 +111,21 @@ export class GameOverScene implements Scene {
       renderer.drawText('HIGH SCORES', cx, cy - 40, Colors.text, 18, 'center');
 
       const tableY = cy - 10;
-      const lineH = 24;
-      for (let i = 0; i < this.table.length; i++) {
+      const lineH = 20;
+      const maxShow = Math.min(this.table.length, 10);
+      for (let i = 0; i < maxShow; i++) {
         const entry = this.table[i];
         const y = tableY + i * lineH;
         const isNew = this.rank === i + 1 && entry.score === this.score;
         const color = isNew ? '#FFFF00' : Colors.hud;
         const rankStr = `${i + 1}.`.padStart(3);
         const scoreStr = String(entry.score).padStart(8);
-        renderer.drawText(`${rankStr}${scoreStr}   ${entry.date}`, cx, y, color, 14, 'center');
+        renderer.drawText(`${rankStr}${scoreStr}   ${entry.date}`, cx, y, color, 12, 'center');
       }
     }
 
     if (this.timer > 2 && Math.floor(this.timer * 2) % 2 === 0) {
-      renderer.drawText('PRESS ENTER TO CONTINUE', cx, cy + 200, Colors.hud, 14, 'center');
+      renderer.drawText('PRESS ENTER TO CONTINUE', cx, renderer.height - 30, Colors.hud, 14, 'center');
     }
   }
 }

@@ -15,11 +15,10 @@ import { Colors } from '../render/colors.js';
 import { GameOverScene } from './game-over-scene.js';
 import { settings } from '../core/settings.js';
 import { playPickupSound, playExplosionSound, playDeathSound, playLevelCompleteSound } from '../core/audio.js';
-import { renderRivalsOverlay } from '../render/opponent-overlay.js';
+import { renderRivalsOverlay, type PipRenderFn } from '../render/opponent-overlay.js';
 import { type RivalsManager } from '../entities/rivals.js';
 
 const EXIT_Y = 450;
-const NEAR_ENTITY_RADIUS = 15;
 const SPIKE_SIZE = 18;
 const SPIKE_SPACING = 25;
 
@@ -172,21 +171,6 @@ export class PlanetScene implements Scene {
     }
   }
 
-  private isNearSurfaceEntity(x: number, y: number): boolean {
-    for (const t of this.turrets) {
-      if (t.alive) {
-        const dx = t.pos.x - x, dy = t.pos.y - y;
-        if (dx * dx + dy * dy < NEAR_ENTITY_RADIUS * NEAR_ENTITY_RADIUS) return true;
-      }
-    }
-    for (const d of this.fuelDepots) {
-      if (d.alive && !d.grabbed) {
-        const dx = d.pos.x - x, dy = d.pos.y - y;
-        if (dx * dx + dy * dy < NEAR_ENTITY_RADIUS * NEAR_ENTITY_RADIUS) return true;
-      }
-    }
-    return false;
-  }
 
   update(dt: number, ctx: SceneContext) {
     const { input, state } = ctx;
@@ -296,11 +280,9 @@ export class PlanetScene implements Scene {
           }
         }
 
-        // Bullet vs terrain - skip if near a surface entity
-        if (!this.isNearSurfaceEntity(bullet.pos.x, bullet.pos.y)) {
-          if (circleVsSegments(bullet.pos.x, bullet.pos.y, 2, this.terrain.segments)) {
-            bullet.life = 0;
-          }
+        // Bullet vs terrain - always check (bullets stop at walls)
+        if (bullet.life > 0 && circleVsSegments(bullet.pos.x, bullet.pos.y, 2, this.terrain.segments)) {
+          bullet.life = 0;
         }
       }
 
@@ -354,13 +336,12 @@ export class PlanetScene implements Scene {
       t.update(dt, this.ship.pos, this.terrain.segments);
     }
 
-    // Turret bullets vs terrain - skip if near a surface entity
+    // Turret bullets vs terrain - skip if still near the turret that fired it
     for (const turret of this.turrets) {
       for (const b of turret.bullets) {
-        if (!this.isNearSurfaceEntity(b.pos.x, b.pos.y)) {
-          if (circleVsSegments(b.pos.x, b.pos.y, 2, this.terrain.segments)) {
-            b.life = 0;
-          }
+        const nearOwner = turret.alive && b.pos.distanceTo(turret.pos) < 20;
+        if (!nearOwner && circleVsSegments(b.pos.x, b.pos.y, 2, this.terrain.segments)) {
+          b.life = 0;
         }
       }
     }
@@ -543,8 +524,76 @@ export class PlanetScene implements Scene {
       if (ctx.multiplayer?.isMultiplayer) {
         ctx.multiplayer.maybeBroadcastState(ctx.state);
       }
-      renderRivalsOverlay(renderer, ctx.rivals, ctx.state.score, ctx.multiplayer);
+      renderRivalsOverlay(renderer, ctx.rivals, ctx.state.score, ctx.multiplayer, this.pipRenderFn(renderer));
     }
+  }
+
+  /** Creates a PIP render callback that draws the bot's scene view */
+  private pipRenderFn(renderer: Renderer): PipRenderFn {
+    return (canvasCtx, rend, pipX, pipY, pipW, pipH, rival) => {
+      const rShip = rival.ship;
+      if (!rShip || !rShip.alive) return false;
+
+      // Save renderer + canvas state
+      const savedCamX = rend.camX;
+      const savedCamY = rend.camY;
+      const savedScale = rend.camScale;
+
+      canvasCtx.save();
+      canvasCtx.beginPath();
+      canvasCtx.rect(pipX, pipY, pipW, pipH);
+      canvasCtx.clip();
+
+      // Translate so renderer center maps to PIP center
+      const offsetX = (pipX + pipW / 2) - rend.width / 2;
+      const offsetY = (pipY + pipH / 2) - rend.height / 2;
+      canvasCtx.translate(offsetX, offsetY);
+
+      // Set camera to bot's position, scaled to fit PIP
+      rend.camX = rShip.pos.x;
+      rend.camY = rShip.pos.y;
+      rend.camScale = pipW / 800;
+
+      // Draw terrain
+      rend.drawSegments(this.terrain.segments, Colors.terrain, 1);
+
+      // Draw turrets (alive only, simplified)
+      for (const t of this.turrets) {
+        if (t.alive) {
+          rend.drawSegments(t.getSegments(), Colors.turret, 1);
+        }
+      }
+
+      // Draw fuel depots
+      for (const f of this.fuelDepots) {
+        if (f.alive) {
+          rend.drawCircle(f.pos.x, f.pos.y, 4, Colors.fuelDepot, 1);
+        }
+      }
+
+      // Draw the bot's ship
+      rival.visual.render(rend);
+
+      // Draw the player's ship as a small dot (so bot view shows player position)
+      if (this.ship.alive) {
+        rend.drawCircle(this.ship.pos.x, this.ship.pos.y, 4, Colors.ship, 1);
+      }
+
+      // Landing pad
+      this.landingPad.render(rend);
+
+      // Restore
+      canvasCtx.restore();
+      rend.camX = savedCamX;
+      rend.camY = savedCamY;
+      rend.camScale = savedScale;
+
+      // Draw bot name overlay at bottom of PIP
+      const label = `${rival.visual.scene || 'PLANET'}`;
+      rend.drawText(label, pipX + pipW / 2, pipY + pipH - 4, rival.color, 8, 'center');
+
+      return true;
+    };
   }
 
   private renderExitHaze(renderer: Renderer) {

@@ -3,12 +3,21 @@ import { type MultiplayerSession } from '../net/multiplayer-session.js';
 import { type RivalsManager } from '../entities/rivals.js';
 import { Colors } from './colors.js';
 
+/** Optional callback to render a scene view into the PIP area.
+ *  Returns true if it drew content, false to fall back to text panel. */
+export type PipRenderFn = (
+  ctx: CanvasRenderingContext2D, renderer: Renderer,
+  pipX: number, pipY: number, pipW: number, pipH: number,
+  rival: { ship: any; visual: any; color: string },
+) => boolean;
+
 /** Render scoreboard + PIP for all rivals */
 export function renderRivalsOverlay(
   renderer: Renderer,
   rivals: RivalsManager,
   localScore: number,
   session: MultiplayerSession | null,
+  pipRender?: PipRenderFn,
 ) {
   const ctx = renderer.ctx;
   const w = renderer.width;
@@ -55,15 +64,24 @@ export function renderRivalsOverlay(
   if (sel.isHuman && session?.remoteVideo && session.remoteVideo.readyState >= 2) {
     ctx.drawImage(session.remoteVideo, pipX, pipY, pipW, pipH);
   } else {
-    ctx.fillStyle = '#0a0a15';
-    ctx.fillRect(pipX, pipY, pipW, pipH);
-    const cx = pipX + pipW / 2;
-    const cy = pipY + pipH / 2;
-    renderer.drawText(sel.name, cx, cy - 14, sel.color, 14, 'center');
-    renderer.drawText(`SCORE: ${sel.score}`, cx, cy + 4, '#aaa', 11, 'center');
-    const locText = sel.gameOver ? 'GAME OVER' : `@ ${sel.scene.toUpperCase()}`;
-    renderer.drawText(locText, cx, cy + 20, '#666', 10, 'center');
-    renderer.drawText(`LIVES: ${sel.lives}`, cx, cy + 34, '#666', 9, 'center');
+    // Try scene render callback first (renders actual game view for active bots)
+    let rendered = false;
+    if (pipRender && !sel.isHuman) {
+      ctx.fillStyle = '#0a0a15';
+      ctx.fillRect(pipX, pipY, pipW, pipH);
+      rendered = pipRender(ctx, renderer, pipX, pipY, pipW, pipH, sel);
+    }
+    if (!rendered) {
+      ctx.fillStyle = '#0a0a15';
+      ctx.fillRect(pipX, pipY, pipW, pipH);
+      const cx = pipX + pipW / 2;
+      const cy = pipY + pipH / 2;
+      renderer.drawText(sel.name, cx, cy - 14, sel.color, 14, 'center');
+      renderer.drawText(`SCORE: ${sel.score}`, cx, cy + 4, '#aaa', 11, 'center');
+      const locText = sel.gameOver ? 'GAME OVER' : `@ ${sel.scene.toUpperCase()}`;
+      renderer.drawText(locText, cx, cy + 20, '#666', 10, 'center');
+      renderer.drawText(`LIVES: ${sel.lives}`, cx, cy + 34, '#666', 9, 'center');
+    }
   }
 
   const label = `${sel.name} [${rivals.selectedPip + 1}/${rivals.rivals.length}]`;
