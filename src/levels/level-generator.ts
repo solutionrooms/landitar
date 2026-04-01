@@ -810,7 +810,7 @@ function placeTurrets(
   // If signedArea < 0, it's clockwise; inward normal is (dy, -dx)/len.
   // If signedArea > 0, it's counterclockwise; inward normal is (-dy, dx)/len.
   const useWinding = closed && terrain.length >= 3;
-  const cwSign = useWinding ? (signedArea(terrain) < 0 ? 1 : -1) : 0;
+  const cwSign = useWinding ? (signedArea(terrain) < 0 ? -1 : 1) : 0;
 
   const candidates: { x: number; y: number; angle: number; score: number }[] = [];
   for (let i = 0; i < nSegs; i++) {
@@ -873,7 +873,7 @@ function placeDepots(
 ): FuelDepotDef[] {
   const nSegs = closed ? terrain.length : terrain.length - 1;
   const useWinding = closed && terrain.length >= 3;
-  const cwSign = useWinding ? (signedArea(terrain) < 0 ? 1 : -1) : 0;
+  const cwSign = useWinding ? (signedArea(terrain) < 0 ? -1 : 1) : 0;
 
   const candidates: Pt[] = [];
   for (let i = 0; i < nSegs; i++) {
@@ -918,32 +918,42 @@ function placeDepots(
   return selected;
 }
 
-function findPadX(terrain: Pt[]): number {
+function findPadX(terrain: Pt[], closed: boolean): number {
   const xs = terrain.map(p => p.x);
   const ys = terrain.map(p => p.y);
   const minX = Math.min(...xs);
   const maxX = Math.max(...xs);
   const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
   const margin = (maxX - minX) * 0.15;
   const safeLeft = minX + margin;
   const safeRight = maxX - margin;
 
-  // Only consider segments near the bottom of the terrain (within 30% of depth from floor)
-  const maxY = Math.max(...ys);
+  // Only consider segments near the bottom of the terrain
   const bottomThreshold = minY + (maxY - minY) * 0.35;
 
   let bestX = 0;
-  let bestSlope = Infinity;
+  let bestScore = -Infinity;
   for (let i = 0; i < terrain.length - 1; i++) {
     const a = terrain[i];
     const b = terrain[i + 1];
     const mx = (a.x + b.x) / 2;
     const my = (a.y + b.y) / 2;
     if (mx < safeLeft || mx > safeRight) continue;
-    if (my > bottomThreshold) continue; // skip wall segments — only use floor
+    if (my > bottomThreshold) continue;
     const slope = Math.abs((b.y - a.y) / (Math.abs(b.x - a.x) + 0.01));
-    if (slope < bestSlope) {
-      bestSlope = slope;
+
+    // For closed levels, check that the pad position is inside the polygon
+    // and has clearance above (point 40px above must also be inside)
+    if (closed) {
+      if (!pointInPolygon(mx, my + 10, terrain)) continue;
+      if (!pointInPolygon(mx, my + 40, terrain)) continue;
+    }
+
+    // Score: prefer flat segments (low slope)
+    const score = 1 / (1 + slope);
+    if (score > bestScore) {
+      bestScore = score;
       bestX = rn(mx);
     }
   }
@@ -1095,7 +1105,7 @@ export function generateLevels(seed: number): LevelData[] {
     }
 
     const fuelDepots = placeDepots(rng, terrain, depotCount, turrets, closed, spawnX, spawnY);
-    const padX = findPadX(terrain);
+    const padX = findPadX(terrain, closed);
 
     return {
       name,
