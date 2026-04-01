@@ -128,9 +128,9 @@ export class RivalsManager {
 
   /** Update background bots (call every frame from any scene) */
   updateBackground(dt: number, playerScene: string) {
-    // Interpolate human rival ships for smooth rendering
+    // Interpolate all rival ship visuals for smooth rendering
     for (const r of this.rivals) {
-      if (r.isHuman) r.visual.interpolate(dt);
+      r.visual.interpolate(dt);
     }
 
     for (const r of this.rivals) {
