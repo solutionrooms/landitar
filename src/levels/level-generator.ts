@@ -772,6 +772,19 @@ function genReactorTunnel(rng: Rng, difficulty: number): Pt[] {
    TURRET & DEPOT PLACEMENT
    ================================================================ */
 
+/** Ray-cast point-in-polygon test */
+function pointInPolygon(px: number, py: number, poly: Pt[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x, yi = poly[i].y;
+    const xj = poly[j].x, yj = poly[j].y;
+    if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
 /** Compute signed area of a polygon. Positive = counterclockwise in Y-up coords. */
 function signedArea(pts: Pt[]): number {
   let sum = 0;
@@ -797,7 +810,7 @@ function placeTurrets(
   // If signedArea < 0, it's clockwise; inward normal is (dy, -dx)/len.
   // If signedArea > 0, it's counterclockwise; inward normal is (-dy, dx)/len.
   const useWinding = closed && terrain.length >= 3;
-  const cwSign = useWinding ? (signedArea(terrain) < 0 ? -1 : 1) : 0;
+  const cwSign = useWinding ? (signedArea(terrain) < 0 ? 1 : -1) : 0;
 
   const candidates: { x: number; y: number; angle: number; score: number }[] = [];
   for (let i = 0; i < nSegs; i++) {
@@ -842,6 +855,8 @@ function placeTurrets(
   for (const c of candidates) {
     if (selected.length >= count) break;
     if (selected.some(t => (t.x - c.x) ** 2 + (t.y - c.y) ** 2 < 55 * 55)) continue;
+    // For closed polygons, reject turrets placed outside the playable area
+    if (closed && !pointInPolygon(c.x, c.y, terrain)) continue;
     selected.push({ x: c.x, y: c.y, angle: c.angle });
   }
   return selected;
@@ -858,7 +873,7 @@ function placeDepots(
 ): FuelDepotDef[] {
   const nSegs = closed ? terrain.length : terrain.length - 1;
   const useWinding = closed && terrain.length >= 3;
-  const cwSign = useWinding ? (signedArea(terrain) < 0 ? -1 : 1) : 0;
+  const cwSign = useWinding ? (signedArea(terrain) < 0 ? 1 : -1) : 0;
 
   const candidates: Pt[] = [];
   for (let i = 0; i < nSegs; i++) {
@@ -895,6 +910,7 @@ function placeDepots(
   const selected: FuelDepotDef[] = [];
   for (const c of candidates) {
     if (selected.length >= count) break;
+    if (closed && !pointInPolygon(c.x, c.y, terrain)) continue;
     if (turrets.some(t => (t.x - c.x) ** 2 + (t.y - c.y) ** 2 < 40 * 40)) continue;
     if (selected.some(d => (d.x - c.x) ** 2 + (d.y - c.y) ** 2 < 80 * 80)) continue;
     selected.push({ x: c.x, y: c.y });
