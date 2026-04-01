@@ -231,16 +231,32 @@ export class PlanetScene implements Scene {
       ctx.replaceScene(new PlanetScene(prev, null));
       return;
     }
-    if (input.wasPressed('KeyJ') && ctx.rivals && state.jumpsLeft > 0) {
-      const rival = ctx.rivals.rivals[ctx.rivals.selectedPip];
-      if (rival && rival.scene !== 'solar' && rival.scene !== this.levelName) {
-        const idx = LEVELS.findIndex(l => l.name === rival.scene);
-        if (idx >= 0) {
-          state.jumpsLeft--;
-          ctx.replaceScene(new HyperspaceScene(new PlanetScene(idx, null)));
-          return;
+    if (input.wasPressed('KeyJ') && state.jumpsLeft > 0) {
+      let targetIdx = -1;
+      if (ctx.rivals) {
+        // Jump to selected rival's planet
+        const rival = ctx.rivals.rivals[ctx.rivals.selectedPip];
+        if (rival && rival.scene !== 'solar' && rival.scene !== this.levelName) {
+          targetIdx = LEVELS.findIndex(l => l.name === rival.scene);
         }
       }
+      if (targetIdx < 0) {
+        // No rival target — jump to a random different planet
+        const candidates = LEVELS.map((_, i) => i).filter(i => i !== this.levelIndex);
+        if (candidates.length > 0) {
+          targetIdx = candidates[Math.floor(Math.random() * candidates.length)];
+        }
+      }
+      if (targetIdx >= 0) {
+        state.jumpsLeft--;
+        ctx.replaceScene(new HyperspaceScene(new PlanetScene(targetIdx, null)));
+        return;
+      }
+    }
+    // X: exit game early
+    if (input.wasPressed('KeyX')) {
+      ctx.replaceScene(new GameOverScene());
+      return;
     }
 
     // Landing sequence state machine

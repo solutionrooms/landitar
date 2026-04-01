@@ -64,16 +64,28 @@ export class SolarSystemScene implements Scene {
     }
 
     // J: jump to selected rival's planet (costs a jump charge)
-    if (input.wasPressed('KeyJ') && ctx.rivals && state.jumpsLeft > 0) {
-      const rival = ctx.rivals.rivals[ctx.rivals.selectedPip];
-      if (rival && rival.scene !== 'solar') {
-        const idx = LEVELS.findIndex(l => l.name === rival.scene);
-        if (idx >= 0) {
-          state.jumpsLeft--;
-          ctx.pushScene(new HyperspaceScene(new PlanetScene(idx, null)));
-          return;
+    if (input.wasPressed('KeyJ') && state.jumpsLeft > 0) {
+      let targetIdx = -1;
+      if (ctx.rivals) {
+        const rival = ctx.rivals.rivals[ctx.rivals.selectedPip];
+        if (rival && rival.scene !== 'solar') {
+          targetIdx = LEVELS.findIndex(l => l.name === rival.scene);
         }
       }
+      if (targetIdx < 0) {
+        // Random planet
+        targetIdx = Math.floor(Math.random() * LEVELS.length);
+      }
+      if (targetIdx >= 0) {
+        state.jumpsLeft--;
+        ctx.pushScene(new HyperspaceScene(new PlanetScene(targetIdx, null)));
+        return;
+      }
+    }
+    // X: exit game early
+    if (input.wasPressed('KeyX')) {
+      ctx.replaceScene(new GameOverScene());
+      return;
     }
 
     // Check for planet explosions (returning from planted explosives)
