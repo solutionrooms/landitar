@@ -61,6 +61,34 @@ function terrainBounds(terrain: Pt[]): { minX: number; maxX: number; minY: numbe
   return { minX, maxX, minY, maxY };
 }
 
+/** Check if a terrain polyline has self-intersecting segments.
+ *  For open polylines, checks non-adjacent segments. */
+function hasSelfIntersection(pts: Pt[], closed: boolean): boolean {
+  const n = pts.length;
+  const segCount = closed ? n : n - 1;
+  for (let i = 0; i < segCount; i++) {
+    const a1 = pts[i], a2 = pts[(i + 1) % n];
+    // Check against non-adjacent segments
+    for (let j = i + 2; j < segCount; j++) {
+      if (!closed && j === segCount - 1 && i === 0) continue; // skip adjacent wrap
+      if (closed && j === segCount - 1 && i === 0) continue;
+      const b1 = pts[j], b2 = pts[(j + 1) % n];
+      if (segmentsIntersect(a1, a2, b1, b2)) return true;
+    }
+  }
+  return false;
+}
+
+function segmentsIntersect(a1: Pt, a2: Pt, b1: Pt, b2: Pt): boolean {
+  const dx1 = a2.x - a1.x, dy1 = a2.y - a1.y;
+  const dx2 = b2.x - b1.x, dy2 = b2.y - b1.y;
+  const denom = dx1 * dy2 - dy1 * dx2;
+  if (Math.abs(denom) < 1e-10) return false;
+  const t = ((b1.x - a1.x) * dy2 - (b1.y - a1.y) * dx2) / denom;
+  const u = ((b1.x - a1.x) * dy1 - (b1.y - a1.y) * dx1) / denom;
+  return t > 0.01 && t < 0.99 && u > 0.01 && u < 0.99;
+}
+
 /* ================================================================
    CAVE SHAPE GENERATORS
    Each returns a polyline (open, first point = top-left opening edge,
@@ -357,44 +385,66 @@ function genOverhang(rng: Rng, difficulty: number): Pt[] {
 
 /* --- 6. Winding S-Curve --- */
 function genWinding(rng: Rng, difficulty: number): Pt[] {
-  const halfW = rn(220 + (1 - difficulty) * 40 + rng.range(-15, 15));
-  const openHalf = rn(Math.max(50, 85 - difficulty * 20 + rng.range(-8, 8)));
-  const depth = rn(380 + difficulty * 80 + rng.range(-25, 25));
+  const halfW = rn(250 + (1 - difficulty) * 50 + rng.range(-15, 15));
+  const openHalf = rn(Math.max(55, 90 - difficulty * 20 + rng.range(-8, 8)));
+  const depth = rn(340 + difficulty * 60 + rng.range(-20, 20));
   const botY = TOP_Y - depth;
-  const passageHalfGap = rn(50 + (1 - difficulty) * 25 + rng.range(-8, 8));
+  const passageGap = rn(80 + (1 - difficulty) * 30 + rng.range(-8, 8));
+  const halfGap = passageGap / 2;
   const pts: Pt[] = [];
 
-  // Number of S-bends
-  const bends = 2 + rng.int(0, 1);
-  const segH = depth / (bends * 2 + 1);
+  // Generate center path first as dense control points, then offset left/right
+  const steps = 30 + rng.int(0, 8);
+  // Moderate S-curve amplitude — must stay well within halfW - halfGap
+  const amplitude = Math.min((halfW - halfGap) * 0.4, 100);
 
-  // Left wall: follows S-curve offset to the left
-  pts.push({ x: rn(-openHalf), y: TOP_Y });
-  const leftSteps = (bends * 2 + 1) * 3;
-  for (let i = 1; i <= leftSteps; i++) {
-    const t = i / leftSteps;
+  const centerPath: { x: number; y: number }[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
     const y = lerp(TOP_Y, botY, t);
-    // S-curve: sine wave that shifts the center left/right
-    const phase = t * bends * Math.PI;
-    const centerX = Math.sin(phase) * (halfW - passageHalfGap) * 0.5;
-    const x = centerX - passageHalfGap;
-    pts.push({ x: rn(x + rng.range(-6, 6)), y: rn(y + rng.range(-3, 3)) });
+    const phase = t * Math.PI * 2; // single full S-bend
+    const x = Math.sin(phase) * amplitude;
+    centerPath.push({ x, y });
   }
 
-  // Bottom: short flat section
-  const botCenterX = Math.sin(bends * Math.PI) * (halfW - passageHalfGap) * 0.5;
-  pts.push({ x: rn(botCenterX - passageHalfGap * 0.3 + rng.range(-5, 5)), y: rn(botY + rng.range(-3, 5)) });
-  pts.push({ x: rn(botCenterX + passageHalfGap * 0.3 + rng.range(-5, 5)), y: rn(botY + rng.range(-3, 5)) });
+  // Left wall: offset left of center (going top to bottom)
+  pts.push({ x: rn(-openHalf), y: TOP_Y });
+  for (let i = 1; i < centerPath.length; i++) {
+    const c = centerPath[i];
+    // Compute local direction to get perpendicular offset
+    const prev = centerPath[i - 1];
+    const next = i < centerPath.length - 1 ? centerPath[i + 1] : c;
+    const dx = next.x - prev.x;
+    const dy = next.y - prev.y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    // Perpendicular pointing left (from path's perspective going down)
+    const nx = dy / len;
+    const ny = -dx / len;
+    pts.push({
+      x: rn(c.x + nx * halfGap + rng.range(-3, 3)),
+      y: rn(c.y + ny * halfGap + rng.range(-2, 2)),
+    });
+  }
 
-  // Right wall: follows S-curve offset to the right (going back up)
-  const rightSteps = (bends * 2 + 1) * 3;
-  for (let i = rightSteps; i >= 1; i--) {
-    const t = i / rightSteps;
-    const y = lerp(TOP_Y, botY, t);
-    const phase = t * bends * Math.PI;
-    const centerX = Math.sin(phase) * (halfW - passageHalfGap) * 0.5;
-    const x = centerX + passageHalfGap;
-    pts.push({ x: rn(x + rng.range(-6, 6)), y: rn(y + rng.range(-3, 3)) });
+  // Bottom connector
+  const botCenter = centerPath[centerPath.length - 1];
+  pts.push({ x: rn(botCenter.x + rng.range(-5, 5)), y: rn(botY + rng.range(-3, 5)) });
+
+  // Right wall: offset right of center (going bottom to top)
+  for (let i = centerPath.length - 2; i >= 1; i--) {
+    const c = centerPath[i];
+    const prev = centerPath[i - 1];
+    const next = i < centerPath.length - 1 ? centerPath[i + 1] : c;
+    const dx = next.x - prev.x;
+    const dy = next.y - prev.y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    // Perpendicular pointing right
+    const nx = -dy / len;
+    const ny = dx / len;
+    pts.push({
+      x: rn(c.x + nx * halfGap + rng.range(-3, 3)),
+      y: rn(c.y + ny * halfGap + rng.range(-2, 2)),
+    });
   }
 
   pts.push({ x: rn(openHalf), y: TOP_Y });
@@ -949,7 +999,13 @@ export function generateLevels(seed: number): LevelData[] {
     const style = styles[i];
     const closed = isTunnelStyle(style);
 
-    const result = generateTerrainForStyle(rng, style, difficulty);
+    let result = generateTerrainForStyle(rng, style, difficulty);
+
+    // Safety: if terrain self-intersects, fall back to a safe wide-bowl
+    if (hasSelfIntersection(result.terrain, closed)) {
+      result = { terrain: genWideBowl(rng, difficulty) };
+    }
+
     const terrain = result.terrain;
     const islands = result.islands;
 
