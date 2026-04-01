@@ -772,6 +772,16 @@ function genReactorTunnel(rng: Rng, difficulty: number): Pt[] {
    TURRET & DEPOT PLACEMENT
    ================================================================ */
 
+/** Compute signed area of a polygon. Positive = counterclockwise in Y-up coords. */
+function signedArea(pts: Pt[]): number {
+  let sum = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    sum += a.x * b.y - b.x * a.y;
+  }
+  return sum * 0.5;
+}
+
 function placeTurrets(
   rng: Rng,
   terrain: Pt[],
@@ -781,6 +791,13 @@ function placeTurrets(
   spawnY: number,
 ): TurretDef[] {
   const nSegs = closed ? terrain.length : terrain.length - 1;
+
+  // For closed polygons, use winding order to determine inward normals reliably.
+  // All tunnel generators trace clockwise (in Y-up), so inward = right normal = (dy, -dx)/len.
+  // If signedArea < 0, it's clockwise; inward normal is (dy, -dx)/len.
+  // If signedArea > 0, it's counterclockwise; inward normal is (-dy, dx)/len.
+  const useWinding = closed && terrain.length >= 3;
+  const cwSign = useWinding ? (signedArea(terrain) < 0 ? 1 : -1) : 0;
 
   const candidates: { x: number; y: number; angle: number; score: number }[] = [];
   for (let i = 0; i < nSegs; i++) {
@@ -794,14 +811,19 @@ function placeTurrets(
     const mx = (a.x + b.x) / 2;
     const my = (a.y + b.y) / 2;
 
-    // Two candidate normals
-    const n1x = -dy / len;
-    const n1y = dx / len;
-
-    // Pick the normal that points toward the spawn point (interior)
-    const dot = n1x * (spawnX - mx) + n1y * (spawnY - my);
-    const nx = dot > 0 ? n1x : dy / len;
-    const ny = dot > 0 ? n1y : -dx / len;
+    let nx: number, ny: number;
+    if (useWinding) {
+      // Use winding order: for CW polygon, inward normal = (dy, -dx)/len
+      nx = cwSign * dy / len;
+      ny = cwSign * -dx / len;
+    } else {
+      // Open polyline: use spawn point as reference for inward direction
+      const n1x = -dy / len;
+      const n1y = dx / len;
+      const dot = n1x * (spawnX - mx) + n1y * (spawnY - my);
+      nx = dot > 0 ? n1x : dy / len;
+      ny = dot > 0 ? n1y : -dx / len;
+    }
 
     const angle = Math.atan2(ny, nx);
 
@@ -835,6 +857,8 @@ function placeDepots(
   spawnY: number,
 ): FuelDepotDef[] {
   const nSegs = closed ? terrain.length : terrain.length - 1;
+  const useWinding = closed && terrain.length >= 3;
+  const cwSign = useWinding ? (signedArea(terrain) < 0 ? 1 : -1) : 0;
 
   const candidates: Pt[] = [];
   for (let i = 0; i < nSegs; i++) {
@@ -847,11 +871,18 @@ function placeDepots(
 
     const mx = (a.x + b.x) / 2;
     const my = (a.y + b.y) / 2;
-    const n1x = -dy / len;
-    const n1y = dx / len;
-    const dot = n1x * (spawnX - mx) + n1y * (spawnY - my);
-    const nx = dot > 0 ? n1x : dy / len;
-    const ny = dot > 0 ? n1y : -dx / len;
+
+    let nx: number, ny: number;
+    if (useWinding) {
+      nx = cwSign * dy / len;
+      ny = cwSign * -dx / len;
+    } else {
+      const n1x = -dy / len;
+      const n1y = dx / len;
+      const dot = n1x * (spawnX - mx) + n1y * (spawnY - my);
+      nx = dot > 0 ? n1x : dy / len;
+      ny = dot > 0 ? n1y : -dx / len;
+    }
     candidates.push({ x: rn(mx + nx * 6), y: rn(my + ny * 6) });
   }
 
