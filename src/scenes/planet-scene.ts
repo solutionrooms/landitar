@@ -9,7 +9,7 @@ import { LandingPad } from '../entities/landing-pad.js';
 import { Terrain } from '../levels/terrain.js';
 import { LEVELS } from '../levels/level-data.js';
 import { type Planet, type PlanetSavedState } from '../entities/planet.js';
-import { circleVsSegments, circleVsSegmentsInfo } from '../math/collision.js';
+import { circleVsSegments, circleVsSegmentsInfo, segmentIntersection, type Segment as CollisionSegment } from '../math/collision.js';
 import { renderHud } from '../render/hud.js';
 import { Colors } from '../render/colors.js';
 import { GameOverScene } from './game-over-scene.js';
@@ -21,6 +21,21 @@ import { type RivalsManager } from '../entities/rivals.js';
 const EXIT_Y = 450;
 const SPIKE_SIZE = 18;
 const SPIKE_SPACING = 25;
+
+/** Check if a bullet hit terrain — uses both circle test and raycast from previous position */
+function bulletHitsTerrain(
+  x: number, y: number, prevX: number, prevY: number,
+  segments: CollisionSegment[],
+): boolean {
+  // Circle test at current position
+  if (circleVsSegments(x, y, 2, segments)) return true;
+  // Raycast from previous to current position (catches fast bullets skipping through)
+  const ray: CollisionSegment = { x1: prevX, y1: prevY, x2: x, y2: y };
+  for (const seg of segments) {
+    if (segmentIntersection(ray, seg)) return true;
+  }
+  return false;
+}
 
 function generateSpikes(
   x1: number, y1: number, x2: number, y2: number,
@@ -93,18 +108,26 @@ export class PlanetScene implements Scene {
 
     // Add spike walls for open levels
     if (!level.closed) {
-      // Left spike wall (spikes point right)
       this.terrain.segments.push(
         ...generateSpikes(this.minX, EXIT_Y, this.minX, this.bottomY, 1, 0),
       );
-      // Right spike wall (spikes point left)
       this.terrain.segments.push(
         ...generateSpikes(this.maxX, EXIT_Y, this.maxX, this.bottomY, -1, 0),
       );
-      // Bottom spike wall (spikes point up)
       this.terrain.segments.push(
         ...generateSpikes(this.minX, this.bottomY, this.maxX, this.bottomY, 0, 1),
       );
+    }
+
+    // Add island/pillar terrain (closed polylines for internal obstacles)
+    if (level.islands) {
+      for (const island of level.islands) {
+        for (let i = 0; i < island.length; i++) {
+          const a = island[i];
+          const b = island[(i + 1) % island.length];
+          this.terrain.segments.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+        }
+      }
     }
 
     this.ship = new Ship(level.spawnX, level.spawnY);
@@ -280,9 +303,13 @@ export class PlanetScene implements Scene {
           }
         }
 
-        // Bullet vs terrain - always check (bullets stop at walls)
-        if (bullet.life > 0 && circleVsSegments(bullet.pos.x, bullet.pos.y, 2, this.terrain.segments)) {
-          bullet.life = 0;
+        // Bullet vs terrain - circle + raycast to catch fast bullets
+        if (bullet.life > 0) {
+          const prevX = bullet.pos.x - bullet.vel.x * dt;
+          const prevY = bullet.pos.y - bullet.vel.y * dt;
+          if (bulletHitsTerrain(bullet.pos.x, bullet.pos.y, prevX, prevY, this.terrain.segments)) {
+            bullet.life = 0;
+          }
         }
       }
 
@@ -340,8 +367,12 @@ export class PlanetScene implements Scene {
     for (const turret of this.turrets) {
       for (const b of turret.bullets) {
         const nearOwner = turret.alive && b.pos.distanceTo(turret.pos) < 20;
-        if (!nearOwner && circleVsSegments(b.pos.x, b.pos.y, 2, this.terrain.segments)) {
-          b.life = 0;
+        if (!nearOwner) {
+          const prevX = b.pos.x - b.vel.x * dt;
+          const prevY = b.pos.y - b.vel.y * dt;
+          if (bulletHitsTerrain(b.pos.x, b.pos.y, prevX, prevY, this.terrain.segments)) {
+            b.life = 0;
+          }
         }
       }
     }

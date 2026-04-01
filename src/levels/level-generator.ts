@@ -401,6 +401,136 @@ function genWinding(rng: Rng, difficulty: number): Pt[] {
   return pts;
 }
 
+/* --- 7. Pillar Cave (wide cave with a central column to fly around) --- */
+function genPillarCave(rng: Rng, difficulty: number): { terrain: Pt[]; islands: Pt[][] } {
+  const halfW = rn(320 + (1 - difficulty) * 50 + rng.range(-20, 20));
+  const openHalf = rn(Math.max(60, 110 - difficulty * 30 + rng.range(-10, 10)));
+  const depth = rn(320 + difficulty * 80 + rng.range(-20, 20));
+  const botY = TOP_Y - depth;
+  const pts: Pt[] = [];
+
+  // Outer cave: simple wide bowl
+  const leftN = 7 + rng.int(0, 3);
+  for (let i = 0; i <= leftN; i++) {
+    const t = i / leftN;
+    const x = lerp(-openHalf, -halfW, smoothstep(Math.min(t * 2, 1)));
+    const y = lerp(TOP_Y, botY, t);
+    const w = (i > 0 && i < leftN) ? rng.range(-8, 8) : 0;
+    pts.push({ x: rn(x + w), y: rn(y + w * 0.3) });
+  }
+
+  const botN = 10 + rng.int(0, 4);
+  for (let i = 1; i < botN; i++) {
+    const t = i / botN;
+    const amp = 6 + rng.range(0, 10);
+    pts.push({
+      x: rn(lerp(-halfW, halfW, t) + rng.range(-5, 5)),
+      y: rn(botY + Math.sin(t * Math.PI * 2) * amp + rng.range(-3, 3)),
+    });
+  }
+
+  const rightN = 7 + rng.int(0, 3);
+  for (let i = 0; i <= rightN; i++) {
+    const t = i / rightN;
+    const x = lerp(halfW, openHalf, smoothstep(Math.min(t * 2, 1)));
+    const y = lerp(botY, TOP_Y, t);
+    const w = (i > 0 && i < rightN) ? rng.range(-8, 8) : 0;
+    pts.push({ x: rn(x + w), y: rn(y + w * 0.3) });
+  }
+
+  // Central pillar/column — a closed polygon island
+  const pillarCx = rn(rng.range(-30, 30)); // slightly off-center
+  const pillarHalfW = rn(25 + rng.range(5, 20));
+  const pillarBot = rn(botY + depth * (0.15 + rng.range(0, 0.1)));
+  const pillarTop = rn(botY + depth * (0.55 + rng.range(0, 0.15)));
+  const pillarJag = 0.3 + difficulty * 0.4;
+
+  const pillar: Pt[] = [];
+  // Left side (bottom to top)
+  const pN = 4 + rng.int(0, 2);
+  for (let i = 0; i <= pN; i++) {
+    const t = i / pN;
+    pillar.push({
+      x: rn(pillarCx - pillarHalfW + rng.range(-4, 4) * pillarJag),
+      y: rn(lerp(pillarBot, pillarTop, t) + rng.range(-3, 3) * pillarJag),
+    });
+  }
+  // Top
+  pillar.push({ x: rn(pillarCx + rng.range(-5, 5)), y: rn(pillarTop + rng.range(0, 8)) });
+  // Right side (top to bottom)
+  for (let i = 0; i <= pN; i++) {
+    const t = i / pN;
+    pillar.push({
+      x: rn(pillarCx + pillarHalfW + rng.range(-4, 4) * pillarJag),
+      y: rn(lerp(pillarTop, pillarBot, t) + rng.range(-3, 3) * pillarJag),
+    });
+  }
+
+  return { terrain: pts, islands: [pillar] };
+}
+
+/* --- 8. Island Cave (cave with a floating enclosed obstacle) --- */
+function genIslandCave(rng: Rng, difficulty: number): { terrain: Pt[]; islands: Pt[][] } {
+  const halfW = rn(300 + (1 - difficulty) * 50 + rng.range(-20, 20));
+  const openHalf = rn(Math.max(60, 100 - difficulty * 25 + rng.range(-10, 10)));
+  const depth = rn(320 + difficulty * 80 + rng.range(-20, 20));
+  const botY = TOP_Y - depth;
+  const pts: Pt[] = [];
+
+  // Outer cave: wide bowl shape
+  const leftN = 7 + rng.int(0, 2);
+  for (let i = 0; i <= leftN; i++) {
+    const t = i / leftN;
+    const x = lerp(-openHalf, -halfW, smoothstep(Math.min(t * 2, 1)));
+    const y = lerp(TOP_Y, botY, t);
+    const w = (i > 0 && i < leftN) ? rng.range(-10, 10) : 0;
+    pts.push({ x: rn(x + w), y: rn(y + w * 0.3) });
+  }
+
+  const botN = 10 + rng.int(0, 4);
+  for (let i = 1; i < botN; i++) {
+    const t = i / botN;
+    const amp = 8 + rng.range(0, 12);
+    pts.push({
+      x: rn(lerp(-halfW, halfW, t) + rng.range(-5, 5)),
+      y: rn(botY + Math.sin(t * Math.PI * 2) * amp + rng.range(-3, 3)),
+    });
+  }
+
+  const rightN = 7 + rng.int(0, 2);
+  for (let i = 0; i <= rightN; i++) {
+    const t = i / rightN;
+    const x = lerp(halfW, openHalf, smoothstep(Math.min(t * 2, 1)));
+    const y = lerp(botY, TOP_Y, t);
+    const w = (i > 0 && i < rightN) ? rng.range(-10, 10) : 0;
+    pts.push({ x: rn(x + w), y: rn(y + w * 0.3) });
+  }
+
+  // Floating island — diamond/hexagonal shape in the middle of the cave
+  const islands: Pt[][] = [];
+  const numIslands = 1 + (difficulty > 0.6 ? rng.int(0, 1) : 0);
+
+  for (let n = 0; n < numIslands; n++) {
+    const icx = rn(rng.range(-halfW * 0.3, halfW * 0.3));
+    const icy = rn(botY + depth * (0.35 + rng.range(0.05, 0.25)));
+    const iRadius = rn(20 + rng.range(10, 25));
+    const iSides = rng.int(4, 7); // diamond to heptagon
+    const island: Pt[] = [];
+
+    for (let s = 0; s < iSides; s++) {
+      const angle = (s / iSides) * Math.PI * 2 - Math.PI / 2;
+      const r = iRadius + rng.range(-5, 5);
+      island.push({
+        x: rn(icx + Math.cos(angle) * r),
+        y: rn(icy + Math.sin(angle) * r),
+      });
+    }
+    islands.push(island);
+  }
+
+  return { terrain: pts, islands };
+}
+
 /* ================================================================
    TUNNEL GENERATORS (closed = true)
    Return a closed polyline — first point connects to last.
@@ -727,24 +857,28 @@ function findPadX(terrain: Pt[]): number {
    STYLE DEFINITIONS & LEVEL ASSIGNMENT
    ================================================================ */
 
-type CaveStyle = 'wide-bowl' | 'deep-shaft' | 'terraced' | 'mesa' | 'overhang' | 'winding';
+type CaveStyle = 'wide-bowl' | 'deep-shaft' | 'terraced' | 'mesa' | 'overhang' | 'winding' | 'pillar' | 'island';
 type TunnelStyle = 'notched-tunnel' | 'winding-tunnel' | 'reactor-tunnel';
 type LevelStyle = CaveStyle | TunnelStyle;
 
-const CAVE_STYLES: CaveStyle[] = ['wide-bowl', 'deep-shaft', 'terraced', 'mesa', 'overhang', 'winding'];
+const CAVE_STYLES: CaveStyle[] = ['wide-bowl', 'deep-shaft', 'terraced', 'mesa', 'overhang', 'winding', 'pillar', 'island'];
 const TUNNEL_STYLES: TunnelStyle[] = ['notched-tunnel', 'winding-tunnel'];
 
-function generateTerrainForStyle(rng: Rng, style: LevelStyle, difficulty: number): Pt[] {
+interface TerrainResult { terrain: Pt[]; islands?: Pt[][] }
+
+function generateTerrainForStyle(rng: Rng, style: LevelStyle, difficulty: number): TerrainResult {
   switch (style) {
-    case 'wide-bowl': return genWideBowl(rng, difficulty);
-    case 'deep-shaft': return genDeepShaft(rng, difficulty);
-    case 'terraced': return genTerraced(rng, difficulty);
-    case 'mesa': return genMesa(rng, difficulty);
-    case 'overhang': return genOverhang(rng, difficulty);
-    case 'winding': return genWinding(rng, difficulty);
-    case 'notched-tunnel': return genNotchedTunnel(rng, difficulty);
-    case 'winding-tunnel': return genWindingTunnel(rng, difficulty);
-    case 'reactor-tunnel': return genReactorTunnel(rng, difficulty);
+    case 'wide-bowl': return { terrain: genWideBowl(rng, difficulty) };
+    case 'deep-shaft': return { terrain: genDeepShaft(rng, difficulty) };
+    case 'terraced': return { terrain: genTerraced(rng, difficulty) };
+    case 'mesa': return { terrain: genMesa(rng, difficulty) };
+    case 'overhang': return { terrain: genOverhang(rng, difficulty) };
+    case 'winding': return { terrain: genWinding(rng, difficulty) };
+    case 'pillar': return genPillarCave(rng, difficulty);
+    case 'island': return genIslandCave(rng, difficulty);
+    case 'notched-tunnel': return { terrain: genNotchedTunnel(rng, difficulty) };
+    case 'winding-tunnel': return { terrain: genWindingTunnel(rng, difficulty) };
+    case 'reactor-tunnel': return { terrain: genReactorTunnel(rng, difficulty) };
   }
 }
 
@@ -815,7 +949,10 @@ export function generateLevels(seed: number): LevelData[] {
     const style = styles[i];
     const closed = isTunnelStyle(style);
 
-    const terrain = generateTerrainForStyle(rng, style, difficulty);
+    const result = generateTerrainForStyle(rng, style, difficulty);
+    const terrain = result.terrain;
+    const islands = result.islands;
+
     const bounds = terrainBounds(terrain);
     const terrainWidth = bounds.maxX - bounds.minX;
 
@@ -835,7 +972,25 @@ export function generateLevels(seed: number): LevelData[] {
     // Fuel depots decrease with difficulty
     const depotCount = Math.max(1, rn(4 - difficulty * 2 + rng.range(-0.5, 0.5)));
 
+    // Place turrets on main terrain
     const turrets = placeTurrets(rng, terrain, turretCount, closed, spawnX, spawnY);
+
+    // Place some turrets on island surfaces too
+    if (islands) {
+      for (const island of islands) {
+        // Compute island centroid for outward normals
+        let icx = 0, icy = 0;
+        for (const p of island) { icx += p.x; icy += p.y; }
+        icx /= island.length; icy /= island.length;
+        const islandTurrets = placeTurrets(rng, island, 1 + rng.int(0, 1), true, icx, icy);
+        // Flip turrets to face outward (away from island center, toward player)
+        for (const t of islandTurrets) {
+          t.angle += Math.PI; // face outward
+        }
+        turrets.push(...islandTurrets);
+      }
+    }
+
     const fuelDepots = placeDepots(rng, terrain, depotCount, turrets, closed, spawnX, spawnY);
     const padX = findPadX(terrain);
 
@@ -850,6 +1005,7 @@ export function generateLevels(seed: number): LevelData[] {
       fuelDepots,
       padX,
       width,
+      islands,
     };
   });
 }

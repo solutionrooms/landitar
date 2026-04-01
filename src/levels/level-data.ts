@@ -15,6 +15,7 @@ export interface LevelData {
   fuelDepots: FuelDepotDef[];
   padX?: number;
   width?: number;   // override play area width (centered at x=0)
+  islands?: { x: number; y: number }[][]; // additional closed polylines (pillars, islands)
 }
 
 const U = Math.PI / 2; // turret pointing up

@@ -71,7 +71,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   soundVolume: 0.7,
 
   lives: 3,
-  randomSeed: 0,
+  randomSeed: 1,
 };
 
 export interface SettingDef {
