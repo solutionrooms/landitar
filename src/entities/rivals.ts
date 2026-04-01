@@ -1,8 +1,9 @@
 import { Vec2 } from '../math/vec2.js';
 import { Ship, type Bullet } from '../entities/ship.js';
 import { type Turret } from '../entities/turret.js';
-import { type Segment } from '../math/collision.js';
+import { type Segment, pointToSegmentDist, segmentIntersection } from '../math/collision.js';
 import { circleVsSegmentsInfo } from '../math/collision.js';
+import { type Terrain } from '../levels/terrain.js';
 import { Explosion } from '../entities/explosion.js';
 import { BotAI } from '../entities/bot-ai.js';
 import { RivalShip, type RivalState } from '../entities/rival-ship.js';
@@ -213,6 +214,7 @@ export class RivalsManager {
     dt: number, gravity: number, terrain: Segment[],
     turrets: Turret[], explosions: Explosion[],
     minX: number, maxX: number, exitY: number,
+    terrainObj?: Terrain,
   ) {
     for (const r of this.rivals) {
       if (!r.ship || !r.ai || !r.ship.alive || r.isHuman) continue;
@@ -241,7 +243,7 @@ export class RivalsManager {
         r.ship.pos.y += hit.normalY * (hit.depth + 1);
       }
 
-      // Bot bullets vs turrets
+      // Bot bullets vs turrets + terrain
       for (const bullet of r.ship.bullets) {
         for (const turret of turrets) {
           if (!turret.alive) continue;
@@ -251,6 +253,27 @@ export class RivalsManager {
             r.score += 250;
             explosions.push(new Explosion(turret.pos.x, turret.pos.y));
             playExplosionSound();
+          }
+        }
+        // Bot bullets vs terrain — damage walls
+        if (bullet.life > 0 && terrainObj) {
+          const prevX = bullet.pos.x - bullet.vel.x * dt;
+          const prevY = bullet.pos.y - bullet.vel.y * dt;
+          let hit = false;
+          for (let si = 0; si < terrainObj.segments.length; si++) {
+            if (!terrainObj.isAlive(si)) continue;
+            if (pointToSegmentDist(bullet.pos.x, bullet.pos.y, terrainObj.segments[si]) < 2) { hit = true; break; }
+          }
+          if (!hit) {
+            const ray = { x1: prevX, y1: prevY, x2: bullet.pos.x, y2: bullet.pos.y };
+            for (let si = 0; si < terrainObj.segments.length; si++) {
+              if (!terrainObj.isAlive(si)) continue;
+              if (segmentIntersection(ray, terrainObj.segments[si])) { hit = true; break; }
+            }
+          }
+          if (hit) {
+            terrainObj.damageAt(bullet.pos.x, bullet.pos.y);
+            bullet.life = 0;
           }
         }
       }

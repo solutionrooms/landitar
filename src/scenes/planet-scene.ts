@@ -430,7 +430,8 @@ export class PlanetScene implements Scene {
           const prevX = b.pos.x - b.vel.x * dt;
           const prevY = b.pos.y - b.vel.y * dt;
           if (bulletHitsTerrain(b.pos.x, b.pos.y, prevX, prevY, this.terrain)) {
-            b.life = 0; // turret bullets don't damage walls
+            this.terrain.damageAt(b.pos.x, b.pos.y);
+            b.life = 0;
           }
         }
       }
@@ -443,6 +444,7 @@ export class PlanetScene implements Scene {
         dt, this.gravity, alive,
         this.turrets, this.explosions,
         this.minX, this.maxX, EXIT_Y,
+        this.terrain,
       );
       ctx.rivals.handlePipKeys(code => ctx.input.wasPressed(code));
 
