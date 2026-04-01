@@ -2,7 +2,12 @@ import { type Scene, type SceneContext } from './scene.js';
 import { type Renderer } from '../render/renderer.js';
 import { Colors } from '../render/colors.js';
 import { TitleScene } from './title-scene.js';
+import { SolarSystemScene } from './solar-system-scene.js';
 import { addHighScore, getHighScores, type HighScoreEntry } from '../core/highscores.js';
+import { settings } from '../core/settings.js';
+import { generateLevels } from '../levels/level-generator.js';
+import { setLevels } from '../levels/level-data.js';
+import { RivalsManager } from '../entities/rivals.js';
 
 export class GameOverScene implements Scene {
   private timer = 0;
@@ -12,6 +17,8 @@ export class GameOverScene implements Scene {
   private isMultiplayer = false;
   private remoteGameOver = false;
   private remoteScore = 0;
+  private selectedOption = 0; // 0 = play again, 1 = quit
+  private botCount = 0;
 
   enter(ctx: SceneContext) {
     this.score = ctx.state.score;
@@ -25,15 +32,22 @@ export class GameOverScene implements Scene {
       this.remoteGameOver = mp.remote.gameOver;
       this.remoteScore = mp.remote.finalScore;
     }
+
+    // Remember bot count for rematch
+    if (ctx.rivals) {
+      this.botCount = ctx.rivals.rivals.filter(r => !r.isHuman).length;
+    }
   }
 
   exit() {}
 
   update(dt: number, ctx: SceneContext) {
     this.timer += dt;
+    if (this.timer < 2) return;
 
-    // Check for remote game-over updates
+    const { input } = ctx;
     const mp = ctx.multiplayer;
+
     if (mp?.isMultiplayer) {
       if (mp.remote.gameOver) {
         this.remoteGameOver = true;
@@ -41,10 +55,62 @@ export class GameOverScene implements Scene {
       }
     }
 
-    if (this.timer > 2 && ctx.input.start) {
-      if (mp?.isMultiplayer) mp.destroy();
-      ctx.replaceScene(new TitleScene());
+    // Navigate options
+    if (input.wasPressed('ArrowUp') || input.wasPressed('ArrowDown') ||
+        input.wasPressed('KeyW') || input.wasPressed('KeyS')) {
+      this.selectedOption = 1 - this.selectedOption;
     }
+
+    if (input.wasPressed('Enter') || input.wasPressed('Space')) {
+      if (this.selectedOption === 0) {
+        this.playAgain(ctx);
+      } else {
+        if (mp?.isMultiplayer) mp.destroy();
+        ctx.replaceScene(new TitleScene());
+      }
+    }
+  }
+
+  private playAgain(ctx: SceneContext) {
+    const seed = settings.randomSeed || Math.floor(Math.random() * 2147483647);
+    setLevels(generateLevels(seed));
+
+    ctx.state.score = 0;
+    ctx.state.lives = settings.lives;
+    ctx.state.fuel = settings.startingFuel;
+    ctx.state.maxFuel = settings.startingFuel;
+    ctx.state.universe = 1;
+    ctx.state.planetsCleared = new Array(12).fill(false);
+    ctx.state.reactorClears = 0;
+
+    // Restore rivals (bots + human if multiplayer)
+    const mp = ctx.multiplayer;
+    if (mp?.isMultiplayer) {
+      // Reset remote state for new game
+      mp.remote.gameOver = false;
+      mp.remote.finalScore = 0;
+      mp.remote.score = 0;
+
+      const rm = new RivalsManager();
+      if (this.botCount > 0) rm.init(this.botCount);
+      rm.addHumanRival();
+      ctx.rivals = rm;
+
+      // Sync new game with opponent
+      if (mp.isHost) {
+        mp.sharedSeed = seed;
+        mp.sendMessage({ type: 'seed', payload: seed });
+        mp.sendMessage({ type: 'game-start', payload: null });
+      }
+    } else if (this.botCount > 0) {
+      const rm = new RivalsManager();
+      rm.init(this.botCount);
+      ctx.rivals = rm;
+    } else {
+      ctx.rivals = null;
+    }
+
+    ctx.replaceScene(new SolarSystemScene());
   }
 
   render(renderer: Renderer, ctx: SceneContext) {
@@ -124,8 +190,16 @@ export class GameOverScene implements Scene {
       }
     }
 
-    if (this.timer > 2 && Math.floor(this.timer * 2) % 2 === 0) {
-      renderer.drawText('PRESS ENTER TO CONTINUE', cx, renderer.height - 30, Colors.hud, 14, 'center');
+    if (this.timer > 2) {
+      const optY = renderer.height - 50;
+      const blink = Math.floor(this.timer * 3) % 2 === 0;
+      const items = ['PLAY AGAIN', 'QUIT TO MENU'];
+      for (let i = 0; i < items.length; i++) {
+        const sel = i === this.selectedOption;
+        const color = sel ? Colors.star : Colors.hud;
+        const prefix = sel && blink ? '> ' : '  ';
+        renderer.drawText(prefix + items[i], cx, optY + i * 22, color, 14, 'center');
+      }
     }
   }
 }
