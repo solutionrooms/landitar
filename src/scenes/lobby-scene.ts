@@ -48,6 +48,7 @@ export class LobbyScene implements Scene {
           Object.assign(settings, msg.payload);
         }
         if (msg.type === 'game-start') {
+          if (msg.payload?.botCount !== undefined) this.botCount = msg.payload.botCount;
           setLevels(generateLevels(this.session.sharedSeed));
           this.startGame(ctx);
         }
@@ -90,7 +91,7 @@ export class LobbyScene implements Scene {
         this.session.sharedSeed = seed;
         this.session.sendMessage({ type: 'seed', payload: seed });
         this.session.sendMessage({ type: 'settings', payload: { ...settings } });
-        this.session.sendMessage({ type: 'game-start', payload: null });
+        this.session.sendMessage({ type: 'game-start', payload: { botCount: this.botCount } });
 
         setLevels(generateLevels(seed));
         this.startGame(ctx);

@@ -98,6 +98,8 @@ export class RivalsManager {
       clearedPlanets: new Set(),
     };
     this.rivals.push(r);
+    // Auto-select the human rival for PIP display
+    this.selectedPip = this.rivals.length - 1;
     return r;
   }
 
