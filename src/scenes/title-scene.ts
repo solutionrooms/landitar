@@ -13,18 +13,25 @@ import { LevelDebugScene } from './level-debug-scene.js';
 import { MultiplayerSession } from '../net/multiplayer-session.js';
 import { RivalsManager } from '../entities/rivals.js';
 
-const REPEAT_DELAY = 0.35;  // seconds before key repeat starts
-const REPEAT_RATE = 0.06;   // seconds between repeats
+const REPEAT_DELAY = 0.35;
+const REPEAT_RATE = 0.06;
+
+type MenuMode = 'main' | 'multiplayer' | 'settings';
 
 export class TitleScene implements Scene {
   private blinkTimer = 0;
   private ctx!: SceneContext;
-  private selectedIndex = 0;
-  private showSettings = false;
-  private menuIndex = 0; // 0=1p, 1=3bots, 2=2p, 3=2p+2bots, 4=settings, 5=prefs, 6=debug
+  private mode: MenuMode = 'main';
+  private menuIndex = 0;
+  private selectedIndex = 0; // settings slider index
 
-  // Key repeat state for held arrow keys in settings
-  private holdDir = 0;        // -1 left, +1 right, 0 none
+  // Multiplayer config
+  private mpBots = 2;
+  private mpHuman = true;
+  private mpMenuIndex = 0; // 0=bots, 1=human, 2=start, 3=back
+
+  // Key repeat state
+  private holdDir = 0;
   private holdTimer = 0;
   private holdRepeating = false;
 
@@ -38,39 +45,82 @@ export class TitleScene implements Scene {
     this.blinkTimer += dt;
     const { input } = ctx;
 
-    if (this.showSettings) {
-      this.updateSettings(dt, input, ctx);
-    } else {
-      if (input.wasPressed('ArrowUp') || input.wasPressed('KeyW')) {
-        this.menuIndex = (this.menuIndex - 1 + 7) % 7;
-      }
-      if (input.wasPressed('ArrowDown') || input.wasPressed('KeyS')) {
-        this.menuIndex = (this.menuIndex + 1) % 7;
-      }
-      if (input.wasPressed('Enter') || input.wasPressed('Space')) {
-        if (this.menuIndex === 0) {
-          this.startGame(ctx);
-        } else if (this.menuIndex === 1) {
-          this.startGame(ctx, 3);
-        } else if (this.menuIndex === 2) {
-          this.start2Player(ctx, 0);
-        } else if (this.menuIndex === 3) {
-          this.start2Player(ctx, 2);
-        } else if (this.menuIndex === 4) {
-          this.showSettings = true;
-        } else if (this.menuIndex === 5) {
-          ctx.pushScene(new PreferencesScene());
-        } else if (this.menuIndex === 6) {
-          const seed = settings.randomSeed || Math.floor(Math.random() * 2147483647);
-          setLevels(generateLevels(seed));
-          ctx.pushScene(new LevelDebugScene());
-        }
+    switch (this.mode) {
+      case 'main': this.updateMain(input, ctx); break;
+      case 'multiplayer': this.updateMultiplayer(input, ctx); break;
+      case 'settings': this.updateSettings(dt, input, ctx); break;
+    }
+  }
+
+  // --- Main menu: 1 PLAYER | MULTIPLAYER | SETTINGS | PREFERENCES | LEVEL DEBUG ---
+  private updateMain(input: InputManager, ctx: SceneContext) {
+    const items = 5;
+    if (input.wasPressed('ArrowUp') || input.wasPressed('KeyW')) this.menuIndex = (this.menuIndex - 1 + items) % items;
+    if (input.wasPressed('ArrowDown') || input.wasPressed('KeyS')) this.menuIndex = (this.menuIndex + 1) % items;
+
+    if (input.wasPressed('Enter') || input.wasPressed('Space')) {
+      if (this.menuIndex === 0) {
+        this.startGame(ctx, 0, false);
+      } else if (this.menuIndex === 1) {
+        this.mode = 'multiplayer';
+        this.mpMenuIndex = 0;
+      } else if (this.menuIndex === 2) {
+        this.mode = 'settings';
+      } else if (this.menuIndex === 3) {
+        ctx.pushScene(new PreferencesScene());
+      } else if (this.menuIndex === 4) {
+        const seed = settings.randomSeed || Math.floor(Math.random() * 2147483647);
+        setLevels(generateLevels(seed));
+        ctx.pushScene(new LevelDebugScene());
       }
     }
   }
 
+  // --- Multiplayer sub-menu: bots slider, human toggle, start, back ---
+  private updateMultiplayer(input: InputManager, ctx: SceneContext) {
+    const items = 4;
+    if (input.wasPressed('ArrowUp') || input.wasPressed('KeyW')) this.mpMenuIndex = (this.mpMenuIndex - 1 + items) % items;
+    if (input.wasPressed('ArrowDown') || input.wasPressed('KeyS')) this.mpMenuIndex = (this.mpMenuIndex + 1) % items;
+
+    if (this.mpMenuIndex === 0) {
+      // Bots slider
+      if (input.wasPressed('ArrowLeft') || input.wasPressed('KeyA')) this.mpBots = Math.max(0, this.mpBots - 1);
+      if (input.wasPressed('ArrowRight') || input.wasPressed('KeyD')) this.mpBots = Math.min(3, this.mpBots + 1);
+    } else if (this.mpMenuIndex === 1) {
+      // Human toggle
+      if (input.wasPressed('ArrowLeft') || input.wasPressed('ArrowRight') ||
+          input.wasPressed('KeyA') || input.wasPressed('KeyD') ||
+          input.wasPressed('Enter') || input.wasPressed('Space')) {
+        if (input.wasPressed('Enter') || input.wasPressed('Space')) {
+          this.mpHuman = !this.mpHuman;
+        } else {
+          this.mpHuman = !this.mpHuman;
+        }
+        // Must have at least 1 opponent
+        if (!this.mpHuman && this.mpBots === 0) this.mpBots = 1;
+        return;
+      }
+    }
+
+    if (input.wasPressed('Enter') || input.wasPressed('Space')) {
+      if (this.mpMenuIndex === 2) {
+        // Start
+        if (this.mpHuman) {
+          this.start2Player(ctx, this.mpBots);
+        } else {
+          this.startGame(ctx, this.mpBots, false);
+        }
+      } else if (this.mpMenuIndex === 3) {
+        this.mode = 'main';
+      }
+    }
+
+    if (input.wasPressed('Escape')) {
+      this.mode = 'main';
+    }
+  }
+
   private updateSettings(dt: number, input: InputManager, ctx: SceneContext) {
-    // Up/down navigation
     if (input.wasPressed('ArrowUp') || input.wasPressed('KeyW')) {
       this.selectedIndex = (this.selectedIndex - 1 + SETTING_DEFS.length) % SETTING_DEFS.length;
     }
@@ -78,20 +128,17 @@ export class TitleScene implements Scene {
       this.selectedIndex = (this.selectedIndex + 1) % SETTING_DEFS.length;
     }
 
-    // Left/right adjustment with key repeat
     const leftHeld = input.isDown('ArrowLeft') || input.isDown('KeyA');
     const rightHeld = input.isDown('ArrowRight') || input.isDown('KeyD');
     const newDir = leftHeld ? -1 : rightHeld ? 1 : 0;
 
     if (newDir !== 0) {
       if (newDir !== this.holdDir) {
-        // Direction changed or just started - immediate adjust + reset timer
         this.holdDir = newDir;
         this.holdTimer = 0;
         this.holdRepeating = false;
         this.adjustSetting(SETTING_DEFS[this.selectedIndex], newDir);
       } else {
-        // Same direction held - repeat after delay
         this.holdTimer += dt;
         if (!this.holdRepeating && this.holdTimer > REPEAT_DELAY) {
           this.holdRepeating = true;
@@ -111,18 +158,9 @@ export class TitleScene implements Scene {
       this.holdRepeating = false;
     }
 
-    // Reset defaults
-    if (input.wasPressed('KeyR')) {
-      resetSettings();
-    }
-
-    // Back / Start
-    if (input.wasPressed('Escape')) {
-      this.showSettings = false;
-    }
-    if (input.wasPressed('Enter')) {
-      this.startGame(ctx);
-    }
+    if (input.wasPressed('KeyR')) resetSettings();
+    if (input.wasPressed('Escape')) this.mode = 'main';
+    if (input.wasPressed('Enter')) this.startGame(this.ctx, 0, false);
   }
 
   private adjustSetting(def: SettingDef, direction: number) {
@@ -133,13 +171,13 @@ export class TitleScene implements Scene {
     (settings as any)[def.key] = next;
   }
 
-  private start2Player(ctx: SceneContext, botCount = 2) {
+  private start2Player(ctx: SceneContext, botCount: number) {
     const session = ctx.multiplayer ?? new MultiplayerSession();
     const canvas = ctx.renderer.ctx.canvas as HTMLCanvasElement;
     ctx.replaceScene(new LobbyScene(session, canvas, botCount));
   }
 
-  private startGame(ctx: SceneContext, botCount = 0) {
+  private startGame(ctx: SceneContext, botCount: number, _hasHuman: boolean) {
     ctx.input.clearAll();
     const seed = settings.randomSeed || Math.floor(Math.random() * 2147483647);
     setLevels(generateLevels(seed));
@@ -153,7 +191,6 @@ export class TitleScene implements Scene {
     ctx.state.reactorClears = 0;
     ctx.state.jumpsLeft = settings.maxJumps;
 
-    // Set up rivals
     if (botCount > 0) {
       const rm = new RivalsManager();
       rm.init(botCount);
@@ -165,6 +202,8 @@ export class TitleScene implements Scene {
     ctx.replaceScene(new SolarSystemScene());
   }
 
+  // ========================== RENDERING ==========================
+
   render(renderer: Renderer) {
     renderer.camX = 0;
     renderer.camY = 0;
@@ -174,49 +213,123 @@ export class TitleScene implements Scene {
     const cx = renderer.width / 2;
     const cy = renderer.height / 2;
 
-    if (this.showSettings) {
-      this.renderSettings(renderer, cx, cy);
-    } else {
-      this.renderTitle(renderer, cx, cy);
+    switch (this.mode) {
+      case 'main': this.renderMain(renderer, cx, cy); break;
+      case 'multiplayer': this.renderMultiplayer(renderer, cx, cy); break;
+      case 'settings': this.renderSettings(renderer, cx, cy); break;
     }
   }
 
-  private renderTitle(renderer: Renderer, cx: number, cy: number) {
-    renderer.drawText('LANDITAR', cx, cy - 80, Colors.star, 48, 'center');
-    renderer.drawText('Inspired by the 1982 Atari Classic Gravitar', cx, cy - 30, Colors.hud, 14, 'center');
+  private renderMain(renderer: Renderer, cx: number, cy: number) {
+    const w = renderer.width;
+    const h = renderer.height;
 
-    const y0 = cy + 40;
-    renderer.drawText('CONTROLS:', cx, y0, Colors.text, 14, 'center');
-    renderer.drawText('LEFT/RIGHT or A/D  -  Rotate', cx, y0 + 24, Colors.hud, 12, 'center');
-    renderer.drawText('UP or W  -  Thrust', cx, y0 + 44, Colors.hud, 12, 'center');
-    renderer.drawText('SPACE  -  Fire', cx, y0 + 64, Colors.hud, 12, 'center');
-    renderer.drawText('SHIFT or S  -  Shield / Tractor Beam', cx, y0 + 84, Colors.hud, 12, 'center');
+    // === Center: Title ===
+    renderer.drawText('LANDITAR', cx, 60, Colors.star, 48, 'center');
+    renderer.drawText('Inspired by the 1982 Atari Classic Gravitar', cx, 100, Colors.hud, 12, 'center');
 
-    // Menu options
-    const menuItems = ['1 PLAYER', 'VS 3 BOTS', '2P ONLY', '2P + 2 BOTS', 'SETTINGS', 'PREFERENCES', 'LEVEL DEBUG'];
-    const menuY = cy + 150;
+    // === Left column: Controls ===
+    const leftX = 30;
+    const colTop = 150;
+    renderer.drawText('CONTROLS', leftX, colTop, Colors.text, 14, 'left');
+    const controls = [
+      ['LEFT/RIGHT or A/D', 'Rotate'],
+      ['UP or W', 'Thrust'],
+      ['SPACE', 'Fire'],
+      ['SHIFT or S', 'Shield / Tractor'],
+      ['J', 'Hyperspace Jump'],
+      ['1-3', 'Switch PIP View'],
+      ['N / P', 'Next/Prev Planet'],
+    ];
+    for (let i = 0; i < controls.length; i++) {
+      const y = colTop + 22 + i * 18;
+      renderer.drawText(controls[i][0], leftX, y, '#888', 10, 'left');
+      renderer.drawText(controls[i][1], leftX + 160, y, Colors.hud, 10, 'left');
+    }
+
+    // === Right column: High Scores ===
+    const rightX = w - 30;
+    const scores = getHighScores();
+    renderer.drawText('HIGH SCORES', rightX, colTop, Colors.text, 14, 'right');
+    if (scores.length > 0) {
+      for (let i = 0; i < Math.min(8, scores.length); i++) {
+        const e = scores[i];
+        const y = colTop + 22 + i * 18;
+        const rankStr = `${i + 1}.`;
+        const scoreStr = String(e.score);
+        renderer.drawText(`${rankStr} ${scoreStr}`, rightX, y, Colors.hud, 11, 'right');
+      }
+    } else {
+      renderer.drawText('No scores yet', rightX, colTop + 22, '#555', 10, 'right');
+    }
+
+    // === Bottom: Menu ===
+    const menuItems = ['1 PLAYER', 'MULTIPLAYER', 'SETTINGS', 'PREFERENCES', 'LEVEL DEBUG'];
+    const menuY = h - 30;
+    const totalW = menuItems.length * 140;
+    const startX = cx - totalW / 2 + 70;
+
     for (let i = 0; i < menuItems.length; i++) {
+      const x = startX + i * 140;
       const selected = i === this.menuIndex;
-      const color = selected ? Colors.star : Colors.hud;
-      const prefix = selected ? '> ' : '  ';
+      const color = selected ? Colors.star : '#666';
       const blink = selected && Math.floor(this.blinkTimer * 3) % 2 === 0;
       if (!selected || blink) {
-        renderer.drawText(prefix + menuItems[i], cx, menuY + i * 28, color, 16, 'center');
+        renderer.drawText(menuItems[i], x, menuY, color, selected ? 14 : 12, 'center');
       }
+      if (selected) {
+        // Underline
+        const ctx = renderer.ctx;
+        const textW = ctx.measureText(menuItems[i]).width;
+        ctx.strokeStyle = Colors.star;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x - textW / 2, menuY + 4);
+        ctx.lineTo(x + textW / 2, menuY + 4);
+        ctx.stroke();
+      }
+    }
+  }
+
+  private renderMultiplayer(renderer: Renderer, cx: number, cy: number) {
+    renderer.drawText('MULTIPLAYER SETUP', cx, 50, Colors.star, 28, 'center');
+
+    const y0 = cy - 50;
+
+    // Bots slider
+    const botsSelected = this.mpMenuIndex === 0;
+    renderer.drawText('BOTS:', cx - 80, y0, botsSelected ? Colors.star : Colors.hud, 16, 'right');
+    renderer.drawText(`< ${this.mpBots} >`, cx + 10, y0, botsSelected ? Colors.star : Colors.hud, 16, 'center');
+    // Visual dots for bot count
+    for (let i = 0; i < 3; i++) {
+      const dotX = cx + 60 + i * 20;
+      renderer.drawText(i < this.mpBots ? '\u25CF' : '\u25CB', dotX, y0, botsSelected ? Colors.star : '#555', 14, 'center');
     }
 
-    // High scores
-    const scores = getHighScores();
-    if (scores.length > 0) {
-      const hsY = menuY + menuItems.length * 28 + 12;
-      renderer.drawText('HIGH SCORES', cx, hsY, Colors.text, 14, 'center');
-      for (let i = 0; i < Math.min(5, scores.length); i++) {
-        const e = scores[i];
-        const rankStr = `${i + 1}.`.padStart(3);
-        const scoreStr = String(e.score).padStart(8);
-        renderer.drawText(`${rankStr}${scoreStr}`, cx, hsY + 20 + i * 18, Colors.hud, 12, 'center');
-      }
+    // Human toggle
+    const humanSelected = this.mpMenuIndex === 1;
+    renderer.drawText('HUMAN OPPONENT:', cx - 80, y0 + 36, humanSelected ? Colors.star : Colors.hud, 16, 'right');
+    renderer.drawText(this.mpHuman ? 'YES' : 'NO', cx + 10, y0 + 36, humanSelected ? (this.mpHuman ? '#44FF44' : '#FF4444') : Colors.hud, 16, 'center');
+
+    // Summary
+    const parts: string[] = [];
+    if (this.mpBots > 0) parts.push(`${this.mpBots} bot${this.mpBots > 1 ? 's' : ''}`);
+    if (this.mpHuman) parts.push('1 human');
+    const summary = parts.length > 0 ? parts.join(' + ') : 'No opponents';
+    renderer.drawText(`vs ${summary}`, cx, y0 + 76, '#888', 12, 'center');
+
+    // Start button
+    const startSel = this.mpMenuIndex === 2;
+    const blink = startSel && Math.floor(this.blinkTimer * 3) % 2 === 0;
+    if (!startSel || blink) {
+      renderer.drawText(this.mpHuman ? 'START LOBBY' : 'START GAME', cx, y0 + 110, startSel ? Colors.star : Colors.hud, 18, 'center');
     }
+
+    // Back
+    const backSel = this.mpMenuIndex === 3;
+    renderer.drawText('BACK', cx, y0 + 145, backSel ? Colors.star : '#555', 14, 'center');
+
+    renderer.drawText('ESC: Back', cx, renderer.height - 20, '#444', 10, 'center');
   }
 
   private renderSettings(renderer: Renderer, cx: number, cy: number) {
@@ -256,7 +369,6 @@ export class TitleScene implements Scene {
     }
 
     const bottomY = startY + SETTING_DEFS.length * lineH + 20;
-
     if (Math.floor(this.blinkTimer * 2) % 2 === 0) {
       renderer.drawText('PRESS ENTER TO START', cx, bottomY, Colors.ship, 16, 'center');
     }
